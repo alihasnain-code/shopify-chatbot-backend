@@ -1,16 +1,51 @@
-import pino from "pino";
-import path from "node:path";
+import fs from 'node:fs'
+import path from 'node:path'
+import pino from 'pino'
 
-const logFilePath = path.join(process.cwd(), "logs", "app.log")
+const isProduction = process.env.NODE_ENV === 'production'
 
-export const logger = pino({
-    level: process.env.LOG_LEVEL || 'trace',
+let logger
 
-    timestamp: pino.stdTimeFunctions.isoTime,
+if (isProduction) {
+    const logsDir = path.join(process.cwd(), 'logs')
 
-    formatters: {
-        level(label) {
-            return { level: label.toUpperCase() }
-        }
+    if (!fs.existsSync(logsDir)) {
+        fs.mkdirSync(logsDir, { recursive: true })
     }
-}, pino.destination(logFilePath));
+
+    logger = pino(
+        {
+            level: process.env.LOG_LEVEL || 'trace',
+            timestamp: pino.stdTimeFunctions.isoTime,
+            formatters: {
+                level(label) {
+                    return { level: label.toUpperCase() }
+                },
+            },
+        },
+        pino.destination(path.join(logsDir, 'app.log'))
+    )
+} else {
+    logger = pino({
+        level: process.env.LOG_LEVEL || 'trace',
+
+        transport: {
+            target: 'pino-pretty',
+            options: {
+                colorize: true,
+                translateTime: 'SYS:standard',
+                ignore: 'pid,hostname',
+            },
+        },
+
+        timestamp: pino.stdTimeFunctions.isoTime,
+
+        formatters: {
+            level(label) {
+                return { level: label.toUpperCase() }
+            },
+        },
+    })
+}
+
+export { logger }
