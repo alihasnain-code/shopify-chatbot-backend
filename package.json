@@ -1,0 +1,21 @@
+{
+  "name": "chatbot-backend",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "license": "MIT",
+  "dependencies": {
+    "@prisma/adapter-mariadb": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "@shopify/shopify-api": "^13.0.0",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "pino": "^10.3.1",
+    "prisma": "^7.8.0"
+  },
+  "packageManager": "yarn@4.17.0",
+  "devDependencies": {
+    "nodemon": "^3.1.14",
+    "prettier": "3.8.4"
+  }
+}

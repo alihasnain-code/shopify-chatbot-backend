@@ -1,0 +1,31 @@
+# Dependencies
+node_modules
+.yarn/*
+!.yarn/releases
+!.yarn/plugins
+!.yarn/sdks
+!.yarn/versions
+
+# Build output
+build
+dist
+coverage
+
+# Generated files
+generated
+.prisma
+
+# Logs
+logs
+*.log
+
+# Environment
+.env
+.env.*
+
+# IDE
+.vscode
+.idea
+
+# OS
+.DS_Store
