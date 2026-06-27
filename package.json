@@ -16,6 +16,8 @@
         "@shopify/shopify-api": "^13.0.0",
         "dotenv": "^17.4.2",
         "express": "^5.2.1",
+        "ollama": "^0.6.3",
+        "openai": "^6.45.0",
         "pino": "^10.3.1",
         "prisma": "^7.8.0"
     },
