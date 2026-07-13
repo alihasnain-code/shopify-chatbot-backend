@@ -7,7 +7,7 @@ datasource db {
   provider = "mysql"
 }
 
-model session {
+model Session {
   id                  String    @id
   shop                String
   state               String
@@ -25,4 +25,27 @@ model session {
   emailVerified       Boolean?  @default(false)
   refreshToken        String?
   refreshTokenExpires DateTime?
+}
+
+model conversation {
+  id        String    @id
+  shop      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  message   message[]
+  cartId    String?
+
+  @@index([shop], map: "Conversation_shop_idx")
+}
+
+model message {
+  id             String       @id @default(cuid())
+  conversationId String
+  role           String
+  content        String       @db.LongText
+  displayContent String?
+  createdAt      DateTime     @default(now())
+  conversation   conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade, map: "Message_conversationId_fkey")
+
+  @@index([conversationId], map: "Message_conversationId_idx")
 }

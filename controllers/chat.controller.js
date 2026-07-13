@@ -1,10 +1,21 @@
+import { randomUUID } from 'node:crypto'
 import MCPClient from '../services/mcp-client.js'
 import { createOpenAIService } from '../services/openai.server.js'
 import { createToolService } from '../services/tool.server.js'
 import AppConfig from '../services/config.server.js'
+import { buildModelMessages } from '../services/history.server.js'
+import {
+    ensureConversation,
+    appendMessage,
+    getMessages,
+    getCartId,
+    setCartId,
+} from '../services/conversation-store.js'
 
 export default async function chatController(req, res) {
     const { shop, message } = req.body
+    let { conversationId } = req.body
+
     if (!message)
         return res
             .status(400)
@@ -18,27 +29,63 @@ export default async function chatController(req, res) {
     const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`)
     const openaiService = createOpenAIService()
     const toolService = createToolService()
-    const mcpClient = new MCPClient(`https://${shop}`)
 
     try {
+        const isNewConversation = !conversationId
+        if (isNewConversation) conversationId = randomUUID()
+
+        await ensureConversation(conversationId, shop)
+        if (isNewConversation) send({ type: 'conversation_id', conversationId })
+
+        const existingCartId = isNewConversation
+            ? null
+            : await getCartId(conversationId)
+
+        const mcpClient = new MCPClient(`https://${shop}`, {
+            cartId: existingCartId,
+        })
+
         await mcpClient.connectToStorefrontServer()
 
-        let conversationHistory = [{ role: 'user', content: message }]
-        let productsToDisplay = []
+        const availableTools = mcpClient.tools.filter((tool) =>
+            AppConfig.tools.enabledToolNames.includes(tool.name)
+        )
+
+        const pastMessages = await getMessages(conversationId)
+        await appendMessage(conversationId, 'user', message)
+
+        let conversationHistory = [
+            ...pastMessages,
+            { role: 'user', content: message },
+        ]
         let finalMessage = { stop_reason: null }
+        let pendingToolResults = []
 
         while (finalMessage.stop_reason !== 'end_turn') {
             finalMessage = await openaiService.streamConversation(
-                { messages: conversationHistory, tools: mcpClient.tools },
                 {
-                    onText: (chunk) => send({ type: 'chunk', chunk }),
+                    messages: buildModelMessages(conversationHistory),
+                    tools: availableTools,
+                },
+                {
+                    onText: (chunk) => {
+                        send({ type: 'chunk', chunk })
+                    },
 
                     onMessage: (msg) => {
                         conversationHistory.push({
                             role: msg.role,
                             content: msg.content,
                         })
+                        appendMessage(conversationId, msg.role, msg.content)
                         send({ type: 'message_complete' })
+
+                        if (pendingToolResults.length) {
+                            for (const result of pendingToolResults) {
+                                send({ type: 'tool_result', ...result })
+                            }
+                            pendingToolResults = []
+                        }
                     },
 
                     onToolUse: async (content) => {
@@ -55,23 +102,52 @@ export default async function chatController(req, res) {
                         if (toolUseResponse.error) {
                             await toolService.handleToolError(toolUseResponse)
                         } else {
-                            await toolService.handleToolSuccess(
+                            const result = toolService.handleToolSuccess(
                                 toolUseResponse,
-                                content.name,
-                                productsToDisplay
+                                content.name
                             )
+                            if (result) pendingToolResults.push(result)
+
+                            if (
+                                AppConfig.tools.cartToolNames.includes(
+                                    content.name
+                                ) &&
+                                mcpClient.cartId !== existingCartId
+                            ) {
+                                await setCartId(
+                                    conversationId,
+                                    mcpClient.cartId
+                                )
+                            }
                         }
+
+                        const modelFacingResult = toolUseResponse.error
+                            ? toolUseResponse
+                            : toolService.buildModelToolResult(
+                                  toolUseResponse,
+                                  content.name
+                              )
+
+                        const toolResultContent = [
+                            {
+                                type: 'tool_result',
+                                tool_use_id: content.id,
+                                content: JSON.stringify(modelFacingResult),
+                            },
+                        ]
 
                         conversationHistory.push({
                             role: 'user',
-                            content: [
-                                {
-                                    type: 'tool_result',
-                                    tool_use_id: content.id,
-                                    content: JSON.stringify(toolUseResponse),
-                                },
-                            ],
+                            content: toolResultContent,
                         })
+                        appendMessage(
+                            conversationId,
+                            'user',
+                            toolResultContent,
+                            toolUseResponse.error
+                                ? null
+                                : toolUseResponse.structuredContent
+                        )
 
                         send({ type: 'new_message' })
                     },
@@ -80,8 +156,6 @@ export default async function chatController(req, res) {
         }
 
         send({ type: 'end_turn' })
-        if (productsToDisplay.length > 0)
-            send({ type: 'product_results', products: productsToDisplay })
     } catch (error) {
         console.error(error)
         send({

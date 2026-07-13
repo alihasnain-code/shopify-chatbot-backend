@@ -3,8 +3,50 @@ import AppConfig from './config.server.js'
 import systemPrompts from '../prompts/prompts.js'
 import { logger } from '../config/logger.js'
 
+const LOOKUP_CATALOG_MAX_IDS = 10
+
+// Deterministic safety net, independent of prompt compliance: if the model
+// emits 2+ get_product calls in the same turn, collapse them into
+// lookup_catalog call(s) before anything executes. Reuses the real
+// tool_call ids OpenAI issued (index-aligned), so the tool_calls/tool
+// message pairing stays valid when this gets replayed as history later.
+function mergeRedundantGetProductCalls(content) {
+    const getProductBlocks = content.filter(
+        (b) => b.type === 'tool_use' && b.name === 'get_product'
+    )
+    if (getProductBlocks.length < 2) return content
+
+    const ids = getProductBlocks
+        .map((b) => b.input?.catalog?.id)
+        .filter(Boolean)
+    if (ids.length < 2) return content
+
+    const nonGetProduct = content.filter(
+        (b) => !(b.type === 'tool_use' && b.name === 'get_product')
+    )
+
+    const chunks = []
+    for (let i = 0; i < ids.length; i += LOOKUP_CATALOG_MAX_IDS) {
+        chunks.push(ids.slice(i, i + LOOKUP_CATALOG_MAX_IDS))
+    }
+
+    const mergedBlocks = chunks.map((chunkIds, index) => ({
+        type: 'tool_use',
+        id: getProductBlocks[index]?.id ?? `${getProductBlocks[0].id}_${index}`,
+        name: 'lookup_catalog',
+        input: { catalog: { ids: chunkIds } },
+    }))
+
+    logger.info(
+        { collapsedCount: getProductBlocks.length, into: mergedBlocks.length },
+        'Collapsed redundant get_product calls into lookup_catalog'
+    )
+
+    return [...nonGetProduct, ...mergedBlocks]
+}
+
 export function createOpenAIService() {
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
     const streamConversation = async (
         { messages, promptType = AppConfig.api.defaultPromptType, tools },
@@ -24,14 +66,10 @@ export function createOpenAIService() {
         })
 
         let text = ''
-        // OpenAI streams tool call arguments as JSON-string fragments, keyed
-        // by index, across many chunks — they must be accumulated then
-        // parsed once the stream ends (Ollama sent each tool call whole).
         const toolCallsByIndex = new Map()
 
         for await (const chunk of stream) {
-            logger.debug({ chunk }, "Received stream chunk");
-
+            logger.debug({ chunk }, 'Received stream chunk')
             const delta = chunk.choices?.[0]?.delta
 
             if (delta?.content) {
@@ -48,7 +86,8 @@ export function createOpenAIService() {
                     }
                     if (tc.id) existing.id = tc.id
                     if (tc.function?.name) existing.name = tc.function.name
-                    if (tc.function?.arguments) existing.arguments += tc.function.arguments
+                    if (tc.function?.arguments)
+                        existing.arguments += tc.function.arguments
                     toolCallsByIndex.set(tc.index, existing)
                 }
             }
@@ -56,8 +95,6 @@ export function createOpenAIService() {
 
         const toolCalls = [...toolCallsByIndex.values()]
 
-        // Mirror Claude's content-block shape so the controller/tool service
-        // don't need to know whether Claude or OpenAI is behind this.
         const content = []
         if (text) {
             const block = { type: 'text', text }
@@ -69,26 +106,31 @@ export function createOpenAIService() {
             try {
                 input = call.arguments ? JSON.parse(call.arguments) : {}
             } catch (err) {
-                logger.error({ err, arguments: call.arguments }, 'Failed to parse tool call arguments')
+                logger.error(
+                    { err, arguments: call.arguments },
+                    'Failed to parse tool call arguments'
+                )
             }
             content.push({
                 type: 'tool_use',
-                id: call.id, // keep OpenAI's real id — required to match it back in the tool result message
+                id: call.id,
                 name: call.name,
                 input,
             })
         })
 
+        const mergedContent = mergeRedundantGetProductCalls(content)
+
         const finalMessage = {
             role: 'assistant',
-            content,
+            content: mergedContent,
             stop_reason: toolCalls.length ? 'tool_use' : 'end_turn',
         }
 
         streamHandlers.onMessage?.(finalMessage)
 
         if (streamHandlers.onToolUse) {
-            for (const block of content) {
+            for (const block of finalMessage.content) {
                 if (block.type === 'tool_use')
                     await streamHandlers.onToolUse(block)
             }
@@ -104,12 +146,8 @@ export function createOpenAIService() {
     return { streamConversation, getSystemPrompt }
 }
 
-// Claude's history is content-block arrays; OpenAI wants flat role+content,
-// plus a `tool_calls` array on any assistant message that called a tool
-// (required so OpenAI accepts the following 'tool' role message).
 function toOpenAIMessages(messages) {
-
-    logger.debug({ messages }, "Converting messages to OpenAI format");
+    logger.debug({ messages }, 'Converting messages to OpenAI format')
 
     return messages.map((m) => {
         if (typeof m.content === 'string')
@@ -119,7 +157,7 @@ function toOpenAIMessages(messages) {
         if (toolResult) {
             return {
                 role: 'tool',
-                tool_call_id: toolResult.tool_use_id, // OpenAI requires tool_call_id, not tool_name
+                tool_call_id: toolResult.tool_use_id,
                 content:
                     typeof toolResult.content === 'string'
                         ? toolResult.content
@@ -127,7 +165,8 @@ function toOpenAIMessages(messages) {
             }
         }
 
-        const toolUseBlocks = m.content.filter?.((b) => b.type === 'tool_use') || []
+        const toolUseBlocks =
+            m.content.filter?.((b) => b.type === 'tool_use') || []
         const textBlock = m.content.find?.((b) => b.type === 'text')
 
         if (toolUseBlocks.length) {
