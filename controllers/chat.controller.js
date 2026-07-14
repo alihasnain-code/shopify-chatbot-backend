@@ -47,9 +47,15 @@ export default async function chatController(req, res) {
 
         await mcpClient.connectToStorefrontServer()
 
-        const availableTools = mcpClient.tools.filter((tool) =>
-            AppConfig.tools.enabledToolNames.includes(tool.name)
-        )
+        const availableTools = mcpClient.tools.filter((tool) => {
+            if (!AppConfig.tools.enabledToolNames.includes(tool.name))
+                return false
+            // Once a cart exists, create_cart must never be offered again — the
+            // model choosing it (instead of update_cart) silently starts a brand
+            // new cart and orphans everything already in it.
+            if (tool.name === 'create_cart' && existingCartId) return false
+            return true
+        })
 
         const pastMessages = await getMessages(conversationId)
         await appendMessage(conversationId, 'user', message)

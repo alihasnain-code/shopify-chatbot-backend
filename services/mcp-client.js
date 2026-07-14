@@ -59,6 +59,10 @@ class MCPClient {
         try {
             logger.info({ toolName, toolArgs }, 'Calling storefront tool')
 
+            if (toolName === 'create_cart' && this.cartId) {
+                return this.callStorefrontTool('update_cart', toolArgs)
+            }
+
             const requiresCartId =
                 AppConfig.tools.cartToolsRequiringId.includes(toolName)
 
