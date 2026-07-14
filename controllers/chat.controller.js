@@ -94,45 +94,65 @@ export default async function chatController(req, res) {
                             tool_use_message: `Calling tool: ${content.name}`,
                         })
 
-                        const toolUseResponse = await mcpClient.callTool(
-                            content.name,
-                            content.input
-                        )
-
-                        if (toolUseResponse.error) {
-                            await toolService.handleToolError(toolUseResponse)
-                        } else {
-                            const result = toolService.handleToolSuccess(
-                                toolUseResponse,
-                                content.name
+                        // Never let a hard failure (network error, MCP
+                        // timeout, etc.) skip writing a tool_result — an
+                        // unanswered tool_call_id permanently breaks every
+                        // future turn in this conversation with OpenAI.
+                        let toolUseResponse
+                        try {
+                            toolUseResponse = await mcpClient.callTool(
+                                content.name,
+                                content.input
                             )
-                            if (result) pendingToolResults.push(result)
-
-                            if (
-                                AppConfig.tools.cartToolNames.includes(
-                                    content.name
-                                ) &&
-                                mcpClient.cartId !== existingCartId
-                            ) {
-                                await setCartId(
-                                    conversationId,
-                                    mcpClient.cartId
-                                )
+                        } catch (err) {
+                            toolUseResponse = {
+                                error: {
+                                    message: err.message || 'Tool call failed',
+                                },
                             }
                         }
 
-                        const modelFacingResult = toolUseResponse.error
-                            ? toolUseResponse
-                            : toolService.buildModelToolResult(
-                                  toolUseResponse,
-                                  content.name
-                              )
+                        try {
+                            if (toolUseResponse.error) {
+                                await toolService.handleToolError(
+                                    toolUseResponse
+                                )
+                            } else {
+                                const result = toolService.handleToolSuccess(
+                                    toolUseResponse,
+                                    content.name
+                                )
+                                if (result) pendingToolResults.push(result)
 
+                                if (
+                                    AppConfig.tools.cartToolNames.includes(
+                                        content.name
+                                    ) &&
+                                    mcpClient.cartId !== existingCartId
+                                ) {
+                                    await setCartId(
+                                        conversationId,
+                                        mcpClient.cartId
+                                    )
+                                }
+                            }
+                        } catch (err) {
+                            console.error(err)
+                        }
+
+                        // Always persist the FULL payload — identical to
+                        // what the frontend receives. Shrinking for the
+                        // model happens later, in buildModelMessages(), and
+                        // never touches what's stored here.
                         const toolResultContent = [
                             {
                                 type: 'tool_result',
                                 tool_use_id: content.id,
-                                content: JSON.stringify(modelFacingResult),
+                                content: JSON.stringify(
+                                    toolUseResponse.error
+                                        ? toolUseResponse
+                                        : toolUseResponse.structuredContent
+                                ),
                             },
                         ]
 
@@ -140,14 +160,7 @@ export default async function chatController(req, res) {
                             role: 'user',
                             content: toolResultContent,
                         })
-                        appendMessage(
-                            conversationId,
-                            'user',
-                            toolResultContent,
-                            toolUseResponse.error
-                                ? null
-                                : toolUseResponse.structuredContent
-                        )
+                        appendMessage(conversationId, 'user', toolResultContent)
 
                         send({ type: 'new_message' })
                     },

@@ -78,6 +78,14 @@ class MCPClient {
                 toolArgs = await this._mergeCartLineItems(toolArgs)
             }
 
+            // Hard cap search_catalog results at exactly
+            // AppConfig.tools.searchCatalogLimit, regardless of what (if
+            // anything) the model requested — never left to the MCP
+            // server's own default.
+            if (toolName === 'search_catalog') {
+                toolArgs = this._applySearchCatalogLimit(toolArgs)
+            }
+
             const headers = { 'Content-Type': 'application/json' }
 
             const response = await this._makeJsonRpcRequest(
@@ -110,6 +118,19 @@ class MCPClient {
         } catch (error) {
             logger.error({ toolName }, error, 'Error calling tool')
             throw error
+        }
+    }
+
+    _applySearchCatalogLimit(toolArgs) {
+        return {
+            ...toolArgs,
+            catalog: {
+                ...toolArgs?.catalog,
+                pagination: {
+                    ...toolArgs?.catalog?.pagination,
+                    limit: AppConfig.tools.searchCatalogLimit,
+                },
+            },
         }
     }
 

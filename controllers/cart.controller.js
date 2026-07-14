@@ -11,12 +11,17 @@ import {
 // POST /cart/add
 // body: { shop, conversationId?, variantId, quantity?, productTitle?, variantTitle? }
 //
-// Deliberately skips the LLM/openai loop — a button click already IS the
-// intent, so we call create_cart/update_cart on the MCP client directly.
-// The turn is still written to the DB in the exact same tool_use /
-// tool_result / text shape the AI loop writes, so getHistoryForClient()
-// renders it identically to an AI-driven add-to-cart on reload, with zero
-// special-casing.
+// Skips the LLM entirely — the button click already IS the intent. Writes
+// the exact same tool_use / tool_result / text row shapes chatController
+// writes, so getHistoryForClient() renders it identically on reload with
+// no special-casing.
+//
+// Two layers of protection against orphaned tool_call_ids (which would
+// otherwise permanently break future /chat calls for this conversation):
+//   1. mcpClient.callTool is wrapped so ANY failure still produces a
+//      tool_result (as an error payload) before responding.
+//   2. An outer catch-all writes a fallback tool_result if something
+//      unexpected still slips through after the tool_use row was written.
 export default async function cartAddController(req, res) {
     const {
         shop,
@@ -33,10 +38,14 @@ export default async function cartAddController(req, res) {
             .json({ error: 'shop and variantId are required' })
     }
 
+    let toolUseId = null
+    let conversationReady = false
+
     try {
         const isNewConversation = !conversationId
         if (isNewConversation) conversationId = randomUUID()
         await ensureConversation(conversationId, shop)
+        conversationReady = true
 
         const existingCartId = isNewConversation
             ? null
@@ -52,10 +61,9 @@ export default async function cartAddController(req, res) {
             cart: { line_items: [{ item: { id: variantId }, quantity }] },
         }
 
-        const toolUseId = `direct_${randomUUID()}`
+        toolUseId = `direct_${randomUUID()}`
         const label = [productTitle, variantTitle].filter(Boolean).join(' — ')
 
-        // Mirrors the shape chatController writes for a normal AI turn.
         await appendMessage(
             conversationId,
             'user',
@@ -70,7 +78,14 @@ export default async function cartAddController(req, res) {
             },
         ])
 
-        const toolUseResponse = await mcpClient.callTool(toolName, toolArgs)
+        let toolUseResponse
+        try {
+            toolUseResponse = await mcpClient.callTool(toolName, toolArgs)
+        } catch (err) {
+            toolUseResponse = {
+                error: { message: err.message || 'Tool call failed' },
+            }
+        }
 
         if (toolUseResponse.error) {
             await appendMessage(conversationId, 'user', [
@@ -78,6 +93,12 @@ export default async function cartAddController(req, res) {
                     type: 'tool_result',
                     tool_use_id: toolUseId,
                     content: JSON.stringify(toolUseResponse),
+                },
+            ])
+            await appendMessage(conversationId, 'assistant', [
+                {
+                    type: 'text',
+                    text: "I couldn't add that to your cart just now.",
                 },
             ])
             return res.status(502).json({
@@ -90,31 +111,23 @@ export default async function cartAddController(req, res) {
             await setCartId(conversationId, mcpClient.cartId)
         }
 
+        // Full payload persisted — identical to what /chat would have stored.
+        await appendMessage(conversationId, 'user', [
+            {
+                type: 'tool_result',
+                tool_use_id: toolUseId,
+                content: JSON.stringify(toolUseResponse.structuredContent),
+            },
+        ])
+        await appendMessage(conversationId, 'assistant', [
+            { type: 'text', text: 'Added to your cart.' },
+        ])
+
         const toolService = createToolService()
         const frontendResult = toolService.handleToolSuccess(
             toolUseResponse,
             toolName
         )
-        const modelFacingResult = toolService.buildModelToolResult(
-            toolUseResponse,
-            toolName
-        )
-
-        await appendMessage(
-            conversationId,
-            'user',
-            [
-                {
-                    type: 'tool_result',
-                    tool_use_id: toolUseId,
-                    content: JSON.stringify(modelFacingResult),
-                },
-            ],
-            toolUseResponse.structuredContent // full payload for card rendering
-        )
-        await appendMessage(conversationId, 'assistant', [
-            { type: 'text', text: 'Added to your cart.' },
-        ])
 
         res.json({
             conversationId,
@@ -122,6 +135,20 @@ export default async function cartAddController(req, res) {
             data: frontendResult?.data ?? toolUseResponse.structuredContent,
         })
     } catch (error) {
+        console.error(error)
+        // Outer safety net: if a tool_use row was written but we crashed
+        // before its tool_result, close the pairing now.
+        if (conversationReady && toolUseId) {
+            await appendMessage(conversationId, 'user', [
+                {
+                    type: 'tool_result',
+                    tool_use_id: toolUseId,
+                    content: JSON.stringify({
+                        error: { message: 'Add to cart failed unexpectedly.' },
+                    }),
+                },
+            ]).catch(() => {})
+        }
         res.status(500).json({ error: 'Failed to add item to cart' })
     }
 }

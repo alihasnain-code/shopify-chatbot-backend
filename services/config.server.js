@@ -30,6 +30,9 @@ export const AppConfig = {
             'update_cart',
             'cancel_cart',
         ],
+        // Enforced server-side in mcp-client.js — the model has no say in
+        // this number regardless of what it puts in pagination.limit.
+        searchCatalogLimit: 5,
     },
 }
 

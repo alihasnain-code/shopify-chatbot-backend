@@ -14,6 +14,10 @@ const searchCatalog = {
                     type: 'string',
                     description: 'Search query string.',
                 },
+                // NOTE: no `limit` field here on purpose — the result
+                // count is hard-enforced server-side in mcp-client.js
+                // (AppConfig.tools.searchCatalogLimit), so it's not
+                // something the model can request or vary.
                 pagination: {
                     type: 'object',
                     properties: {
@@ -22,7 +26,6 @@ const searchCatalog = {
                             description:
                                 'Cursor from a previous search response, to fetch the next page.',
                         },
-                        limit: { type: 'integer', default: 5 },
                     },
                 },
             },

@@ -43,7 +43,6 @@ model message {
   conversationId String
   role           String
   content        String       @db.LongText
-  displayContent String?
   createdAt      DateTime     @default(now())
   conversation   conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade, map: "Message_conversationId_fkey")
 

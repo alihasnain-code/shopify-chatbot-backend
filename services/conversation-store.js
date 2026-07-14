@@ -30,25 +30,14 @@ export async function getMessages(conversationId) {
     }))
 }
 
-// content = model-facing content (unchanged shape/cost as before).
-// displayContent = OPTIONAL full frontend payload (only meaningful for
-// tool_result rows) — used purely for re-rendering product/cart cards on
-// history reload. Never sent to the model.
-export async function appendMessage(
-    conversationId,
-    role,
-    content,
-    displayContent = null
-) {
+// content is always the FULL, untouched payload — identical to what the
+// frontend receives over SSE. Nothing is shrunk or summarized before it
+// hits the DB. Token-saving shrinkage happens ONLY at request time, in
+// history.server.js's buildModelMessages(), right before a call to OpenAI.
+export async function appendMessage(conversationId, role, content) {
     try {
         await prisma.message.create({
-            data: {
-                conversationId,
-                role,
-                content: serialize(content),
-                displayContent:
-                    displayContent != null ? serialize(displayContent) : null,
-            },
+            data: { conversationId, role, content: serialize(content) },
         })
     } catch (error) {
         logger.error(
@@ -68,9 +57,9 @@ export async function appendMessage(
 
 // Rebuilds a UI-friendly turn sequence from raw DB rows:
 //   [{ role:'user', text }, { role:'assistant', text, toolResults:[{tool,data}] }, ...]
-// Works identically whether a turn came from the real AI loop (chatController)
-// or a direct, AI-skipped action (e.g. the Add to Cart button) — both write
-// the same tool_use/tool_result/text row shapes.
+// Works identically for AI-driven turns and direct AI-skipping actions
+// (e.g. the Add to Cart button) — both write the same tool_use /
+// tool_result / text row shapes.
 export async function getHistoryForClient(conversationId) {
     const rows = await prisma.message.findMany({
         where: { conversationId },
@@ -92,14 +81,12 @@ export async function getHistoryForClient(conversationId) {
     for (const row of rows) {
         const content = deserialize(row.content)
 
-        // Plain user text -> starts a new turn.
         if (row.role === 'user' && typeof content === 'string') {
             turns.push({ role: 'user', text: content })
             currentTurn = null
             continue
         }
 
-        // Assistant message: text and/or tool_use blocks.
         if (row.role === 'assistant' && Array.isArray(content)) {
             const turn = ensureBotTurn()
             for (const block of content) {
@@ -110,17 +97,16 @@ export async function getHistoryForClient(conversationId) {
             continue
         }
 
-        // Tool result envelope (role: user, content: [tool_result]).
         if (row.role === 'user' && Array.isArray(content)) {
             const toolResult = content.find((b) => b.type === 'tool_result')
             if (toolResult) {
                 const turn = ensureBotTurn()
                 const toolName =
                     toolNameById.get(toolResult.tool_use_id) || null
-                const display = row.displayContent
-                    ? deserialize(row.displayContent)
-                    : deserialize(toolResult.content)
-                turn.toolResults.push({ tool: toolName, data: display })
+                turn.toolResults.push({
+                    tool: toolName,
+                    data: deserialize(toolResult.content),
+                })
             }
             continue
         }
@@ -129,9 +115,6 @@ export async function getHistoryForClient(conversationId) {
     return turns
 }
 
-// One cart per conversation. This id is the only cart-related state we
-// keep server-side — it's an opaque identifier, not derived cart content,
-// so there's nothing here that can drift from reality.
 export async function getCartId(conversationId) {
     const conversation = await prisma.conversation.findUnique({
         where: { id: conversationId },
