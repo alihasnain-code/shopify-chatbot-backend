@@ -7,33 +7,13 @@ datasource db {
   provider = "mysql"
 }
 
-model Session {
-  id                  String    @id
-  shop                String
-  state               String
-  isOnline            Boolean   @default(false)
-  scope               String?
-  expires             DateTime?
-  accessToken         String
-  userId              BigInt?
-  firstName           String?
-  lastName            String?
-  email               String?
-  accountOwner        Boolean   @default(false)
-  locale              String?
-  collaborator        Boolean?  @default(false)
-  emailVerified       Boolean?  @default(false)
-  refreshToken        String?
-  refreshTokenExpires DateTime?
-}
-
 model conversation {
   id        String    @id
   shop      String
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
-  message   message[]
   cartId    String?
+  message   message[]
 
   @@index([shop], map: "Conversation_shop_idx")
 }
@@ -47,4 +27,106 @@ model message {
   conversation   conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade, map: "Message_conversationId_fkey")
 
   @@index([conversationId], map: "Message_conversationId_idx")
+}
+
+model aipersonasettings {
+  id                 Int      @id @default(autoincrement())
+  sessionId          String   @unique(map: "AiPersonaSettings_sessionId_key")
+  customInstructions String?  @db.Text
+  tone               String   @default("standard")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime
+  session            session  @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "AiPersonaSettings_sessionId_fkey")
+}
+
+model form {
+  id        Int      @id @default(autoincrement())
+  sessionId String
+  name      String
+  status    String   @default("active")
+  fields    String   @db.LongText
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime
+  session   session  @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "Form_sessionId_fkey")
+
+  @@unique([sessionId, name], map: "Form_sessionId_name_key")
+  @@index([sessionId], map: "Form_sessionId_idx")
+}
+
+model policy_chunks {
+  id          Int      @id @default(autoincrement())
+  shop_domain String   @db.VarChar(255)
+  policy_type String   @db.VarChar(100)
+  text_chunk  String   @db.Text
+  embedding   String   @db.LongText
+  created_at  DateTime @default(now())
+
+  @@index([shop_domain, policy_type])
+}
+
+model session {
+  id                  String             @id
+  shop                String
+  state               String
+  isOnline            Boolean            @default(false)
+  scope               String?
+  expires             DateTime?
+  accessToken         String
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean            @default(false)
+  locale              String?
+  collaborator        Boolean?           @default(false)
+  emailVerified       Boolean?           @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+  aipersonasettings   aipersonasettings?
+  form                form[]
+  starterquestion     starterquestion[]
+  usagesettings       usagesettings?
+  user_configs        user_configs?
+}
+
+model starterquestion {
+  id        Int      @id @default(autoincrement())
+  sessionId String
+  question  String   @db.VarChar(150)
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime
+  session   session  @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "StarterQuestion_sessionId_fkey")
+
+  @@index([sessionId], map: "StarterQuestion_sessionId_idx")
+}
+
+model usagesettings {
+  id                         Int      @id @default(autoincrement())
+  sessionId                  String   @unique(map: "UsageSettings_sessionId_key")
+  maxMessagesPerConversation Int      @default(15)
+  maxMessagesPerVisitor      Int      @default(100)
+  resetPeriod                String   @default("hour")
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime
+  session                    session  @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "UsageSettings_sessionId_fkey")
+}
+
+model user_configs {
+  id             Int                         @id @default(autoincrement())
+  sessionId      String                      @unique(map: "UserConfigs_sessionId_key")
+  policiesStatus user_configs_policiesStatus @default(IN_PROGRESS)
+  lastSyncedAt   DateTime?
+  createdAt      DateTime                    @default(now())
+  updatedAt      DateTime                    @updatedAt
+  session        session                     @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "UserConfigs_sessionId_fkey")
+
+  @@index([sessionId], map: "UserConfigs_sessionId_idx")
+}
+
+enum user_configs_policiesStatus {
+  IN_PROGRESS
+  SYNCED
+  FAILED
 }

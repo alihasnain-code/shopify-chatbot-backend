@@ -176,7 +176,9 @@ class MCPClient {
                         // The model isn't required to repeat the variant id when it's
                         // only changing quantity on an existing line — fall back to
                         // what's already in the cart for that line if omitted.
-                        item: { id: requested.item?.id || existingLine.item.id },
+                        item: {
+                            id: requested.item?.id || existingLine.item.id,
+                        },
                         quantity: requested.quantity,
                     })
                 }
