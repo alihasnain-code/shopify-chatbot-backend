@@ -134,11 +134,11 @@ model form_response {
   sessionId String
   data      String   @db.Text
   createdAt DateTime @default(now())
-  form      form     @relation(fields: [formId], references: [id])
-  session   session  @relation(fields: [sessionId], references: [id])
+  form      form     @relation(fields: [formId], references: [id], onDelete: Cascade, map: "FormResponse_formId_fkey")
+  session   session  @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "FormResponse_sessionId_fkey")
 
-  @@index([formId], map: "form_response_formId_fkey")
-  @@index([sessionId], map: "form_response_sessionId_fkey")
+  @@index([formId], map: "FormResponse_formId_fkey")
+  @@index([sessionId], map: "FormResponse_sessionId_fkey")
 }
 
 enum user_configs_policiesStatus {
