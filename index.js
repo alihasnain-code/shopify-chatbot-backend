@@ -3,7 +3,7 @@ import app from './app.js'
 import { prisma } from './lib/prisma.js'
 import { logger } from './config/logger.js'
 
-const PORT = process.env.PORT || 3000
+const PORT = process.env.PORT || 4001
 
 process.on('uncaughtException', (error) => {
     logger.fatal(error, 'Uncaught Exception')
