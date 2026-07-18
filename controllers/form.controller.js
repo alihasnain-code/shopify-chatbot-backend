@@ -29,7 +29,9 @@ export default async function getForms(req, res) {
             },
         })
 
-        const data = forms.map((form) => {
+        const data = []
+
+        for (const form of forms) {
             let parsedFields = []
             try {
                 parsedFields = JSON.parse(form.fields)
@@ -43,14 +45,19 @@ export default async function getForms(req, res) {
                 )
             }
 
-            return {
+            // If the parsed fields array is empty, skip this form entirely
+            if (!Array.isArray(parsedFields) || parsedFields.length === 0) {
+                continue
+            }
+
+            data.push({
                 id: form.id,
                 name: form.name,
                 status: form.status,
                 position: form.position,
                 fields: parsedFields,
-            }
-        })
+            })
+        }
 
         return res.status(200).json({
             success: true,
