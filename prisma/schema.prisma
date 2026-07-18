@@ -48,6 +48,7 @@ model form {
   position  Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime
+  version   Int      @default(1)
   session   session  @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "Form_sessionId_fkey")
 
   @@unique([sessionId, name], map: "Form_sessionId_name_key")

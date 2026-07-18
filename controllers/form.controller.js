@@ -26,6 +26,7 @@ export default async function getForms(req, res) {
                 status: true,
                 position: true,
                 fields: true,
+                version: true,
             },
         })
 
@@ -56,6 +57,7 @@ export default async function getForms(req, res) {
                 status: form.status,
                 position: form.position,
                 fields: parsedFields,
+                version: form.version,
             })
         }
 
