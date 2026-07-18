@@ -40,16 +40,17 @@ model aipersonasettings {
 }
 
 model form {
-  id        Int      @id @default(autoincrement())
-  sessionId String
-  name      String
-  status    String   @default("active")
-  fields    String   @db.LongText
-  position  Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime
-  version   Int      @default(1)
-  session   session  @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "Form_sessionId_fkey")
+  id            Int             @id @default(autoincrement())
+  sessionId     String
+  name          String
+  status        String          @default("active")
+  fields        String          @db.LongText
+  position      Int             @default(0)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime
+  version       Int             @default(1)
+  session       session         @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "Form_sessionId_fkey")
+  form_response form_response[]
 
   @@unique([sessionId, name], map: "Form_sessionId_name_key")
   @@index([sessionId], map: "Form_sessionId_idx")
@@ -86,6 +87,7 @@ model session {
   refreshTokenExpires DateTime?
   aipersonasettings   aipersonasettings?
   form                form[]
+  form_response       form_response[]
   starterquestion     starterquestion[]
   usagesettings       usagesettings?
   user_configs        user_configs?
@@ -124,6 +126,19 @@ model user_configs {
   session        session                     @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "UserConfigs_sessionId_fkey")
 
   @@index([sessionId], map: "UserConfigs_sessionId_idx")
+}
+
+model form_response {
+  id        Int      @id @default(autoincrement())
+  formId    Int
+  sessionId String
+  data      String   @db.Text
+  createdAt DateTime @default(now())
+  form      form     @relation(fields: [formId], references: [id])
+  session   session  @relation(fields: [sessionId], references: [id])
+
+  @@index([formId], map: "form_response_formId_fkey")
+  @@index([sessionId], map: "form_response_sessionId_fkey")
 }
 
 enum user_configs_policiesStatus {

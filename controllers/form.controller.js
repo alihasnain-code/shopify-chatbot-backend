@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma.js'
 
-export default async function getForms(req, res) {
+export async function getForms(req, res) {
     const { shop } = req.params
 
     if (!shop) {
@@ -70,6 +70,51 @@ export default async function getForms(req, res) {
         return res.status(500).json({
             success: false,
             message: 'Failed to fetch forms.',
+        })
+    }
+}
+
+export async function submitFormResponse(req, res) {
+    const { shop } = req.params
+    const { formId, data } = req.body
+
+    if (!shop) {
+        return res.status(400).json({
+            success: false,
+            message: 'shop is required.',
+        })
+    }
+
+    try {
+        const session = await prisma.session.findFirst({
+            where: { shop, isOnline: false },
+            select: { id: true },
+        })
+
+        if (!session) {
+            return res.status(404).json({
+                success: false,
+                message: 'Shop not found.',
+            })
+        }
+
+        const response = await prisma.form_response.create({
+            data: {
+                formId: Number(formId),
+                sessionId: session.id,
+                data: JSON.stringify(data || {}),
+            },
+        })
+
+        return res.status(201).json({
+            success: true,
+            data: { id: response.id },
+        })
+    } catch (error) {
+        console.error('submitFormResponse error:', error)
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to save form response.',
         })
     }
 }
