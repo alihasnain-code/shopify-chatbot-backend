@@ -30,6 +30,19 @@ export async function getMessages(conversationId) {
     }))
 }
 
+// UsageSettings is FK'd to Session, not to shop directly — so we go
+// through the session row for this shop. Falls back to the schema
+// default (15) if no usagesettings row exists yet for some reason.
+export async function getMaxMessagesForShop(shop) {
+    const session = await prisma.session.findFirst({
+        where: { shop }, // offline session = the one afterAuth seeds settings on
+        select: {
+            usagesettings: { select: { maxMessagesPerConversation: true } },
+        },
+    })
+    return session?.usagesettings?.maxMessagesPerConversation ?? 15
+}
+
 // content is always the FULL, untouched payload — identical to what the
 // frontend receives over SSE. Nothing is shrunk or summarized before it
 // hits the DB. Token-saving shrinkage happens ONLY at request time, in

@@ -11,6 +11,8 @@ export const AppConfig = {
             'This endpoint only supports server-sent events (SSE) requests or history requests.',
         rateLimitDetails: 'Please try again later',
         genericError: 'Failed to get response from AI',
+        conversationLimitReached:
+            'This conversation has reached its message limit. Start a new conversation to keep chatting.',
     },
 
     tools: {

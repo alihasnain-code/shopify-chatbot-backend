@@ -8,6 +8,7 @@ import {
     ensureConversation,
     appendMessage,
     getMessages,
+    getMaxMessagesForShop,
     getCartId,
     setCartId,
 } from '../services/conversation-store.js'
@@ -37,6 +38,33 @@ export default async function chatController(req, res) {
         await ensureConversation(conversationId, shop)
         if (isNewConversation) send({ type: 'conversation_id', conversationId })
 
+        // --- Max messages per conversation guard --------------------------------
+        // Only counts "real" turns: the visitor's own typed messages (role:'user',
+        // string content) and the assistant's replies (role:'assistant'). Tool_result
+        // rows (role:'user', array content) don't count against the merchant's limit.
+        const pastMessages = await getMessages(conversationId)
+        const qualifyingMessageCount = pastMessages.filter((m) => {
+            if (m.role === 'user') return typeof m.content === 'string'
+            if (m.role === 'assistant') {
+                return (
+                    Array.isArray(m.content) &&
+                    m.content.some(
+                        (block) => block.type === 'text' && block.text
+                    )
+                )
+            }
+            return false
+        }).length
+
+        const maxMessages = await getMaxMessagesForShop(shop)
+        if (qualifyingMessageCount >= maxMessages) {
+            send({
+                type: 'limit_reached',
+                error: AppConfig.errorMessages.conversationLimitReached,
+            })
+            return
+        }
+
         const existingCartId = isNewConversation
             ? null
             : await getCartId(conversationId)
@@ -57,7 +85,6 @@ export default async function chatController(req, res) {
             return true
         })
 
-        const pastMessages = await getMessages(conversationId)
         await appendMessage(conversationId, 'user', message)
 
         let conversationHistory = [
