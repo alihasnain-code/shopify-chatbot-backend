@@ -33,7 +33,11 @@ export async function getMessages(conversationId) {
 export async function getUsageContextForShop(shop) {
     const session = await prisma.session.findFirst({
         where: { shop },
-        select: { id: true, usagesettings: true },
+        select: {
+            id: true,
+            usagesettings: true,
+            aipersonasettings: { select: { tone: true } },
+        },
     })
 
     return {
@@ -43,6 +47,7 @@ export async function getUsageContextForShop(shop) {
             maxMessagesPerVisitor: 100,
             resetPeriod: 'hour',
         },
+        tone: session?.aipersonasettings?.tone ?? 'standard',
     }
 }
 

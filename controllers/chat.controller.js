@@ -4,7 +4,11 @@ import { createOpenAIService } from '../services/openai.server.js'
 import { createToolService } from '../services/tool.server.js'
 import AppConfig from '../services/config.server.js'
 import { buildModelMessages } from '../services/history.server.js'
-import { getVisitorIp, getResetPeriodMs, checkAndIncrementVisitorUsage } from "../services/usage-limits.server.js"
+import {
+    getVisitorIp,
+    getResetPeriodMs,
+    checkAndIncrementVisitorUsage,
+} from '../services/usage-limits.server.js'
 import {
     ensureConversation,
     appendMessage,
@@ -14,6 +18,7 @@ import {
     setCartId,
 } from '../services/conversation-store.js'
 import { searchPolicies } from '../services/policy.server.js'
+import { resolvePromptType } from '../services/persona.server.js'
 import { LOCAL_TOOLS } from '../services/tool-schemas.js'
 
 export default async function chatController(req, res) {
@@ -41,10 +46,13 @@ export default async function chatController(req, res) {
         await ensureConversation(conversationId, shop)
         if (isNewConversation) send({ type: 'conversation_id', conversationId })
 
-        const [pastMessages, { sessionId, usageSettings }] = await Promise.all([
-            getMessages(conversationId),
-            getUsageContextForShop(shop),
-        ])
+        const [pastMessages, { sessionId, usageSettings, tone }] =
+            await Promise.all([
+                getMessages(conversationId),
+                getUsageContextForShop(shop),
+            ])
+
+        const promptType = resolvePromptType(tone)
 
         // --- Max messages per conversation guard --------------------------------
         const qualifyingMessageCount = pastMessages.filter(
@@ -95,7 +103,8 @@ export default async function chatController(req, res) {
 
         const availableTools = [
             ...mcpClient.tools.filter((tool) => {
-                if (!AppConfig.tools.enabledToolNames.includes(tool.name)) return false
+                if (!AppConfig.tools.enabledToolNames.includes(tool.name))
+                    return false
                 if (tool.name === 'create_cart' && existingCartId) return false
                 return true
             }),
@@ -116,6 +125,7 @@ export default async function chatController(req, res) {
                 {
                     messages: buildModelMessages(conversationHistory),
                     tools: availableTools,
+                    promptType,
                 },
                 {
                     onText: (chunk) => {
@@ -151,10 +161,18 @@ export default async function chatController(req, res) {
                         let toolUseResponse
                         try {
                             if (content.name === 'search_policies') {
-                                const chunks = await searchPolicies(shop, content.input.query)
-                                toolUseResponse = { structuredContent: { chunks } }
+                                const chunks = await searchPolicies(
+                                    shop,
+                                    content.input.query
+                                )
+                                toolUseResponse = {
+                                    structuredContent: { chunks },
+                                }
                             } else {
-                                toolUseResponse = await mcpClient.callTool(content.name, content.input)
+                                toolUseResponse = await mcpClient.callTool(
+                                    content.name,
+                                    content.input
+                                )
                             }
                         } catch (err) {
                             toolUseResponse = {
