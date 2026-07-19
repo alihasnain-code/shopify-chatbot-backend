@@ -5,6 +5,7 @@ import cartRouter from './routes/cart.route.js'
 import questionsRouter from './routes/questions.routes.js'
 import formsRouter from './routes/forms.routes.js'
 import './workers/policySyncWorker.js'
+import { logger } from './config/logger.js'
 
 const app = express()
 
@@ -18,8 +19,14 @@ app.use('/api/v1', questionsRouter)
 app.use('/api/v1', formsRouter)
 
 app.use((req, res, next) => {
-    console.log('remoteAddress:', req.socket.remoteAddress)
-    console.log('x-forwarded-for:', req.headers['x-forwarded-for'])
+    logger.info(
+        {
+            remoteAddress: req.socket.remoteAddress,
+            xForwardedFor: req.headers['x-forwarded-for'],
+        },
+        'Incoming request'
+    )
+
     next()
 })
 
