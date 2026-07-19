@@ -26,6 +26,7 @@ export const AppConfig = {
             'create_cart',
             'update_cart',
             'cancel_cart',
+            'search_policies',
         ],
         cartToolsRequiringId: ['get_cart', 'update_cart', 'cancel_cart'],
         cartToolNames: [

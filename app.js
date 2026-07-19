@@ -13,18 +13,6 @@ app.use(express.static('public'))
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
-app.use((req, res, next) => {
-    logger.info(
-        {
-            remoteAddress: req.socket.remoteAddress,
-            xForwardedFor: req.headers['x-forwarded-for'],
-        },
-        'Incoming request'
-    )
-
-    next()
-})
-
 app.use('/api/v1', chatRouter)
 app.use('/api/v1', historyRouter)
 app.use('/api/v1', cartRouter)

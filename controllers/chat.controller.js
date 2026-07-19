@@ -13,6 +13,8 @@ import {
     getCartId,
     setCartId,
 } from '../services/conversation-store.js'
+import { searchPolicies } from '../services/policy.server.js'
+import { LOCAL_TOOLS } from '../services/tool-schemas.js'
 
 export default async function chatController(req, res) {
     const { shop, message } = req.body
@@ -91,15 +93,14 @@ export default async function chatController(req, res) {
 
         await mcpClient.connectToStorefrontServer()
 
-        const availableTools = mcpClient.tools.filter((tool) => {
-            if (!AppConfig.tools.enabledToolNames.includes(tool.name))
-                return false
-            // Once a cart exists, create_cart must never be offered again — the
-            // model choosing it (instead of update_cart) silently starts a brand
-            // new cart and orphans everything already in it.
-            if (tool.name === 'create_cart' && existingCartId) return false
-            return true
-        })
+        const availableTools = [
+            ...mcpClient.tools.filter((tool) => {
+                if (!AppConfig.tools.enabledToolNames.includes(tool.name)) return false
+                if (tool.name === 'create_cart' && existingCartId) return false
+                return true
+            }),
+            ...LOCAL_TOOLS,
+        ]
 
         await appendMessage(conversationId, 'user', message)
 
@@ -149,10 +150,12 @@ export default async function chatController(req, res) {
                         // future turn in this conversation with OpenAI.
                         let toolUseResponse
                         try {
-                            toolUseResponse = await mcpClient.callTool(
-                                content.name,
-                                content.input
-                            )
+                            if (content.name === 'search_policies') {
+                                const chunks = await searchPolicies(shop, content.input.query)
+                                toolUseResponse = { structuredContent: { chunks } }
+                            } else {
+                                toolUseResponse = await mcpClient.callTool(content.name, content.input)
+                            }
                         } catch (err) {
                             toolUseResponse = {
                                 error: {

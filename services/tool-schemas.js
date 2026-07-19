@@ -166,6 +166,27 @@ const updateCart = {
     required: ['cart'],
 }
 
+const searchPolicies = {
+    type: 'object',
+    properties: {
+        query: {
+            type: 'string',
+            description:
+                "The customer's question, in their own words (e.g. 'can I return a used item', 'do you ship to Canada').",
+        },
+    },
+    required: ['query'],
+}
+
+export const LOCAL_TOOLS = [
+    {
+        name: 'search_policies',
+        description:
+            "Search the store's policies (shipping, returns, refunds, terms, privacy, etc.) for information relevant to a customer question.",
+        input_schema: searchPolicies,
+    },
+]
+
 export const MINIMAL_TOOL_SCHEMAS = {
     search_catalog: searchCatalog,
     lookup_catalog: lookupCatalog,
@@ -174,6 +195,7 @@ export const MINIMAL_TOOL_SCHEMAS = {
     cancel_cart: noParams,
     create_cart: createCart,
     update_cart: updateCart,
+    search_policies: searchPolicies,
 }
 
 export default MINIMAL_TOOL_SCHEMAS

@@ -51,3 +51,9 @@ export async function chunkAndEmbedPolicy(cleanText, policyType) {
         vector: vectorEmbeddings[index],
     }))
 }
+
+export async function embedQuery(text) {
+    const extractor = await EmbeddingPipeline.getInstance()
+    const output = await extractor([text], { pooling: 'mean', normalize: true })
+    return output.tolist()[0]
+}
