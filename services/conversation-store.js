@@ -36,7 +36,9 @@ export async function getUsageContextForShop(shop) {
         select: {
             id: true,
             usagesettings: true,
-            aipersonasettings: { select: { tone: true } },
+            aipersonasettings: {
+                select: { tone: true, customInstructions: true },
+            },
         },
     })
 
@@ -48,6 +50,8 @@ export async function getUsageContextForShop(shop) {
             resetPeriod: 'hour',
         },
         tone: session?.aipersonasettings?.tone ?? 'standard',
+        customInstructions:
+            session?.aipersonasettings?.customInstructions ?? null,
     }
 }
 

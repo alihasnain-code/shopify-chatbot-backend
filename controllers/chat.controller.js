@@ -19,7 +19,10 @@ import {
 } from '../services/conversation-store.js'
 import { logger } from '../config/logger.js'
 import { searchPolicies } from '../services/policy.server.js'
-import { resolvePromptType } from '../services/persona.server.js'
+import {
+    resolvePromptType,
+    sanitizeCustomInstructions,
+} from '../services/persona.server.js'
 import { LOCAL_TOOLS } from '../services/tool-schemas.js'
 
 export default async function chatController(req, res) {
@@ -47,13 +50,17 @@ export default async function chatController(req, res) {
         await ensureConversation(conversationId, shop)
         if (isNewConversation) send({ type: 'conversation_id', conversationId })
 
-        const [pastMessages, { sessionId, usageSettings, tone }] =
-            await Promise.all([
-                getMessages(conversationId),
-                getUsageContextForShop(shop),
-            ])
+        const [
+            pastMessages,
+            { sessionId, usageSettings, tone, customInstructions },
+        ] = await Promise.all([
+            getMessages(conversationId),
+            getUsageContextForShop(shop),
+        ])
 
         const promptType = resolvePromptType(tone)
+        const safeCustomInstructions =
+            sanitizeCustomInstructions(customInstructions)
 
         // --- Max messages per conversation guard --------------------------------
         const qualifyingMessageCount = pastMessages.filter(
@@ -127,6 +134,7 @@ export default async function chatController(req, res) {
                     messages: buildModelMessages(conversationHistory),
                     tools: availableTools,
                     promptType,
+                    customInstructions: safeCustomInstructions,
                 },
                 {
                     onText: (chunk) => {
