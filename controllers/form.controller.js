@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js'
+import { logger } from '../config/logger.js'
 
 export async function getForms(req, res) {
     const { shop } = req.params
@@ -40,9 +41,12 @@ export async function getForms(req, res) {
                 // Malformed fields JSON shouldn't take down the whole
                 // response — log it and fall back to an empty field list
                 // for this form only.
-                console.error(
-                    `Failed to parse fields for form id=${form.id}:`,
-                    parseError
+                logger.error(
+                    {
+                        err: parseError,
+                        formId: form.id,
+                    },
+                    'Failed to parse form fields JSON'
                 )
             }
 
@@ -66,7 +70,13 @@ export async function getForms(req, res) {
             data,
         })
     } catch (error) {
-        console.error('getForms error:', error)
+        logger.error(
+            {
+                err: error,
+                shop,
+            },
+            'Failed to fetch forms'
+        )
         return res.status(500).json({
             success: false,
             message: 'Failed to fetch forms.',
@@ -111,7 +121,14 @@ export async function submitFormResponse(req, res) {
             data: { id: response.id },
         })
     } catch (error) {
-        console.error('submitFormResponse error:', error)
+        logger.error(
+            {
+                err: error,
+                shop,
+                formId,
+            },
+            'Failed to submit form response'
+        )
         return res.status(500).json({
             success: false,
             message: 'Failed to save form response.',

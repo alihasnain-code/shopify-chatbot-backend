@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { logger } from '../config/logger.js'
 import MCPClient from '../services/mcp-client.js'
 import { createToolService } from '../services/tool.server.js'
 import {
@@ -135,7 +136,7 @@ export default async function cartAddController(req, res) {
             data: frontendResult?.data ?? toolUseResponse.structuredContent,
         })
     } catch (error) {
-        console.error(error)
+        logger.error(error)
         // Outer safety net: if a tool_use row was written but we crashed
         // before its tool_result, close the pairing now.
         if (conversationReady && toolUseId) {

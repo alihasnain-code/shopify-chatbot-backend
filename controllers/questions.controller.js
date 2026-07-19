@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js'
+import { logger } from '../config/logger.js'
 
 export default async function getStarterQuestions(req, res) {
     const { shop } = req.params
@@ -31,7 +32,7 @@ export default async function getStarterQuestions(req, res) {
             data: questions,
         })
     } catch (error) {
-        console.error('getStarterQuestions error:', error)
+        logger.error('getStarterQuestions error:', error)
         return res.status(500).json({
             success: false,
             message: 'Failed to fetch starter questions.',

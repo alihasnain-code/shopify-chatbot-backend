@@ -17,6 +17,7 @@ import {
     getCartId,
     setCartId,
 } from '../services/conversation-store.js'
+import { logger } from '../config/logger.js'
 import { searchPolicies } from '../services/policy.server.js'
 import { resolvePromptType } from '../services/persona.server.js'
 import { LOCAL_TOOLS } from '../services/tool-schemas.js'
@@ -207,7 +208,7 @@ export default async function chatController(req, res) {
                                 }
                             }
                         } catch (err) {
-                            console.error(err)
+                            logger.error(error)
                         }
 
                         // Always persist the FULL payload — identical to
@@ -240,7 +241,7 @@ export default async function chatController(req, res) {
 
         send({ type: 'end_turn' })
     } catch (error) {
-        console.error(error)
+        logger.error(error)
         send({
             type: 'error',
             error: AppConfig.errorMessages.genericError,

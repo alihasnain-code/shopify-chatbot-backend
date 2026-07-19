@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma.js'
 import shopify from '../lib/shopify.server.js'
 import { cleanPolicyText } from '../utils/policyCleaner.js'
 import { chunkAndEmbedPolicy } from '../utils/policyEmbedder.js'
+import { logger } from '../config/logger.js'
 
 const POLICIES_QUERY = `
   query getAdminPolicies {
@@ -38,7 +39,7 @@ async function setPolicySyncStatus(sessionId, status, { lastSyncedAt } = {}) {
         })
     } catch (statusError) {
         // Don't let a status-tracking failure mask/replace the real sync error
-        console.error(
+        logger.error(
             `[Worker] Failed to update policiesStatus (${status}) for session ${sessionId}:`,
             statusError
         )
@@ -49,7 +50,7 @@ export const policySyncWorker = new Worker(
     'policy-sync',
     async (job) => {
         const { shop } = job.data
-        console.log(
+        logger.info(
             `[Worker] Processing policy sync execution for store: ${shop}`
         )
 
@@ -100,7 +101,7 @@ export const policySyncWorker = new Worker(
 
             const policies = result?.data?.shop?.shopPolicies || []
             if (!policies.length) {
-                console.log(
+                logger.info(
                     `[Worker] No shop policies configured to process for: ${shop}`
                 )
                 await setPolicySyncStatus(syncedSessionId, 'SYNCED', {
@@ -143,7 +144,7 @@ export const policySyncWorker = new Worker(
                 }
             }
 
-            console.log(
+            logger.info(
                 `[Worker] Successfully completed vectors refresh processing for ${shop}`
             )
 
@@ -151,7 +152,7 @@ export const policySyncWorker = new Worker(
                 lastSyncedAt: new Date(),
             })
         } catch (error) {
-            console.error(
+            logger.error(
                 `[Worker Execution Failure] Failed to process job ${job.id}:`,
                 error
             )
