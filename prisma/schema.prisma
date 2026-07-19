@@ -148,7 +148,7 @@ model visitor_usage {
   ip           String   @db.VarChar(64)
   windowStart  DateTime @default(now())
   messageCount Int      @default(0)
-  updatedAt    DateTime
+  updatedAt    DateTime @updatedAt
   session      session  @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "VisitorUsage_sessionId_fkey")
 
   @@unique([sessionId, ip], map: "VisitorUsage_sessionId_ip_key")
