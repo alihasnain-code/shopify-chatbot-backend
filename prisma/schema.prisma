@@ -91,6 +91,7 @@ model session {
   starterquestion     starterquestion[]
   usagesettings       usagesettings?
   user_configs        user_configs?
+  visitor_usage       visitor_usage[]
 }
 
 model starterquestion {
@@ -139,6 +140,18 @@ model form_response {
 
   @@index([formId], map: "FormResponse_formId_fkey")
   @@index([sessionId], map: "FormResponse_sessionId_fkey")
+}
+
+model visitor_usage {
+  id           Int      @id @default(autoincrement())
+  sessionId    String
+  ip           String   @db.VarChar(64)
+  windowStart  DateTime @default(now())
+  messageCount Int      @default(0)
+  updatedAt    DateTime
+  session      session  @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "VisitorUsage_sessionId_fkey")
+
+  @@unique([sessionId, ip], map: "VisitorUsage_sessionId_ip_key")
 }
 
 enum user_configs_policiesStatus {

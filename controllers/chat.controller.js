@@ -4,11 +4,12 @@ import { createOpenAIService } from '../services/openai.server.js'
 import { createToolService } from '../services/tool.server.js'
 import AppConfig from '../services/config.server.js'
 import { buildModelMessages } from '../services/history.server.js'
+import { getVisitorIp, getResetPeriodMs, checkAndIncrementVisitorUsage } from "../services/usage-limits.server.js"
 import {
     ensureConversation,
     appendMessage,
     getMessages,
-    getMaxMessagesForShop,
+    getUsageContextForShop,
     getCartId,
     setCartId,
 } from '../services/conversation-store.js'
@@ -38,22 +39,46 @@ export default async function chatController(req, res) {
         await ensureConversation(conversationId, shop)
         if (isNewConversation) send({ type: 'conversation_id', conversationId })
 
+        const [pastMessages, { sessionId, usageSettings }] = await Promise.all([
+            getMessages(conversationId),
+            getUsageContextForShop(shop),
+        ])
+
         // --- Max messages per conversation guard --------------------------------
-        // Only counts "real" turns: the visitor's own typed messages (role:'user',
-        // string content) and the assistant's replies (role:'assistant'). Tool_result
-        // rows (role:'user', array content) don't count against the merchant's limit.
-        const pastMessages = await getMessages(conversationId)
         const qualifyingMessageCount = pastMessages.filter(
             (m) => m.role === 'user' && typeof m.content === 'string'
         ).length
 
-        const maxMessages = await getMaxMessagesForShop(shop)
-        if (qualifyingMessageCount >= maxMessages) {
+        if (
+            qualifyingMessageCount >= usageSettings.maxMessagesPerConversation
+        ) {
             send({
                 type: 'limit_reached',
                 error: AppConfig.errorMessages.conversationLimitReached,
             })
             return
+        }
+
+        // --- Max total messages per visitor (rolling window, IP-based) ----------
+        // sessionId missing (no offline session row yet for this shop) — fail
+        // open rather than crash; this shouldn't happen for an installed app.
+        if (sessionId) {
+            const visitorIp = getVisitorIp(req)
+            const resetPeriodMs = getResetPeriodMs(usageSettings.resetPeriod)
+            const visitorCheck = await checkAndIncrementVisitorUsage(
+                sessionId,
+                visitorIp,
+                usageSettings.maxMessagesPerVisitor,
+                resetPeriodMs
+            )
+
+            if (!visitorCheck.allowed) {
+                send({
+                    type: 'limit_reached',
+                    error: AppConfig.errorMessages.visitorLimitReached,
+                })
+                return
+            }
         }
 
         const existingCartId = isNewConversation

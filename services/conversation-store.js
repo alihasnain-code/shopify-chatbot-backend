@@ -30,17 +30,20 @@ export async function getMessages(conversationId) {
     }))
 }
 
-// UsageSettings is FK'd to Session, not to shop directly — so we go
-// through the session row for this shop. Falls back to the schema
-// default (15) if no usagesettings row exists yet for some reason.
-export async function getMaxMessagesForShop(shop) {
+export async function getUsageContextForShop(shop) {
     const session = await prisma.session.findFirst({
-        where: { shop }, // offline session = the one afterAuth seeds settings on
-        select: {
-            usagesettings: { select: { maxMessagesPerConversation: true } },
-        },
+        where: { shop },
+        select: { id: true, usagesettings: true },
     })
-    return session?.usagesettings?.maxMessagesPerConversation ?? 15
+
+    return {
+        sessionId: session?.id ?? null,
+        usageSettings: session?.usagesettings ?? {
+            maxMessagesPerConversation: 15,
+            maxMessagesPerVisitor: 100,
+            resetPeriod: 'hour',
+        },
+    }
 }
 
 // content is always the FULL, untouched payload — identical to what the

@@ -13,6 +13,8 @@ export const AppConfig = {
         genericError: 'Failed to get response from AI',
         conversationLimitReached:
             'This conversation has reached its message limit. Start a new conversation to keep chatting.',
+        visitorLimitReached:
+            'You have reached the maximum number of messages allowed for now. Please try again later.',
     },
 
     tools: {
