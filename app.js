@@ -17,4 +17,10 @@ app.use('/api/v1', cartRouter)
 app.use('/api/v1', questionsRouter)
 app.use('/api/v1', formsRouter)
 
+app.use((req, res, next) => {
+    console.log('remoteAddress:', req.socket.remoteAddress)
+    console.log('x-forwarded-for:', req.headers['x-forwarded-for'])
+    next()
+})
+
 export default app

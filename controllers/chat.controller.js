@@ -43,18 +43,9 @@ export default async function chatController(req, res) {
         // string content) and the assistant's replies (role:'assistant'). Tool_result
         // rows (role:'user', array content) don't count against the merchant's limit.
         const pastMessages = await getMessages(conversationId)
-        const qualifyingMessageCount = pastMessages.filter((m) => {
-            if (m.role === 'user') return typeof m.content === 'string'
-            if (m.role === 'assistant') {
-                return (
-                    Array.isArray(m.content) &&
-                    m.content.some(
-                        (block) => block.type === 'text' && block.text
-                    )
-                )
-            }
-            return false
-        }).length
+        const qualifyingMessageCount = pastMessages.filter(
+            (m) => m.role === 'user' && typeof m.content === 'string'
+        ).length
 
         const maxMessages = await getMaxMessagesForShop(shop)
         if (qualifyingMessageCount >= maxMessages) {
