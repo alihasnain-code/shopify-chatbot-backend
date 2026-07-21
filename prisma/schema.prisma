@@ -88,6 +88,7 @@ model session {
   aipersonasettings   aipersonasettings?
   form                form[]
   form_response       form_response[]
+  order               order[]
   starterquestion     starterquestion[]
   usagesettings       usagesettings?
   user_configs        user_configs?
@@ -152,6 +153,50 @@ model visitor_usage {
   session      session  @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "VisitorUsage_sessionId_fkey")
 
   @@unique([sessionId, ip], map: "VisitorUsage_sessionId_ip_key")
+}
+
+model order {
+  id                Int                 @id @default(autoincrement())
+  sessionId         String
+  shopifyOrderId    String              @unique
+  orderNumber       Int
+  orderName         String
+  email             String?
+  financialStatus   String?
+  fulfillmentStatus String?
+  currency          String?
+  totalPrice        String?
+  lineItems         String              @db.Text
+  shippingCity      String?
+  shippingProvince  String?
+  shippingCountry   String?
+  cancelledAt       DateTime?
+  cancelReason      String?
+  shopifyCreatedAt  DateTime
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime
+  session           session             @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  order_fulfillment order_fulfillment[]
+
+  @@index([sessionId, orderNumber])
+}
+
+model order_fulfillment {
+  id                   Int      @id @default(autoincrement())
+  shopifyFulfillmentId String   @unique
+  orderId              Int
+  status               String?
+  shipmentStatus       String?
+  trackingCompany      String?
+  trackingNumber       String?
+  trackingUrl          String?
+  shopifyCreatedAt     DateTime
+  shopifyUpdatedAt     DateTime
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime
+  order                order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId], map: "order_fulfillment_orderId_fkey")
 }
 
 enum user_configs_policiesStatus {
