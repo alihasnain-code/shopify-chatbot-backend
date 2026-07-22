@@ -199,6 +199,19 @@ model order_fulfillment {
   @@index([orderId], map: "order_fulfillment_orderId_fkey")
 }
 
+model customer_account_auth {
+  id             Int       @id @default(autoincrement())
+  conversationId String
+  shop           String
+  state          String    @unique
+  codeVerifier   String
+  accessToken    String?
+  tokenExpiresAt DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([conversationId, shop])
+}
+
 enum user_configs_policiesStatus {
   IN_PROGRESS
   SYNCED
