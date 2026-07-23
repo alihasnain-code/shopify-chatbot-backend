@@ -199,7 +199,7 @@ export const LOCAL_TOOLS = [
     {
         name: 'track_order',
         description:
-            "Look up the status of a customer's order by order number. If the customer isn't logged in yet, this will show them a login link first.",
+            "Look up the status of a customer's order by order number. If the customer isn't logged in yet, this shows them a login link first.",
         input_schema: trackOrder,
     },
 ]

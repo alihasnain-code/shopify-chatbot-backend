@@ -23,12 +23,11 @@ import {
     resolvePromptType,
     sanitizeCustomInstructions,
 } from '../services/persona.server.js'
-import { LOCAL_TOOLS } from '../services/tool-schemas.js'
 import {
     getValidCustomerToken,
     startCustomerAuth,
-    callCustomerAccountMcp,
 } from '../services/customer-account.server.js'
+import { LOCAL_TOOLS } from '../services/tool-schemas.js'
 
 export default async function chatController(req, res) {
     const { shop, message } = req.body
@@ -183,10 +182,11 @@ export default async function chatController(req, res) {
                                     structuredContent: { chunks },
                                 }
                             } else if (content.name === 'track_order') {
-                                const accessToken = await getValidCustomerToken(
-                                    shop,
-                                    conversationId
-                                )
+                                const accessToken =
+                                    await getValidCustomerToken(
+                                        shop,
+                                        conversationId
+                                    )
 
                                 if (!accessToken) {
                                     const authUrl = await startCustomerAuth(
@@ -201,50 +201,20 @@ export default async function chatController(req, res) {
                                         structuredContent: {
                                             requiresLogin: true,
                                             message:
-                                                'The customer needs to log in to their Shopify account to view order details. A login link has been shown to them.',
+                                                "The customer needs to log in first to view their order. A login link has been shown to them — once they've logged in, ask them to try again.",
                                         },
                                     }
                                 } else {
-                                    try {
-                                        const result =
-                                            await callCustomerAccountMcp(
-                                                shop,
-                                                accessToken,
-                                                'get_order_status',
-                                                {
-                                                    order_number:
-                                                        content.input
-                                                            .orderNumber,
-                                                }
-                                            )
-                                        toolUseResponse = {
-                                            structuredContent: result,
-                                        }
-                                    } catch (mcpErr) {
-                                        if (mcpErr.status === 401) {
-                                            const authUrl =
-                                                await startCustomerAuth(
-                                                    shop,
-                                                    conversationId
-                                                )
-                                            send({
-                                                type: 'customer_auth_required',
-                                                authUrl,
-                                            })
-                                            toolUseResponse = {
-                                                structuredContent: {
-                                                    requiresLogin: true,
-                                                    message:
-                                                        'The customer needs to log in again — their session expired.',
-                                                },
-                                            }
-                                        } else {
-                                            toolUseResponse = {
-                                                error: {
-                                                    message: mcpErr.message,
-                                                },
-                                            }
-                                        }
+                                    // Logged in — actual order lookup
+                                    // (MCP tool vs our own DB) is decided
+                                    // later. For now just confirm
+                                    // verification succeeded.
+                                    toolUseResponse = {
+                                        structuredContent: {
+                                            verified: true,
+                                            message:
+                                                'The customer is verified and logged in. Let them know order lookup is being finalized.',
+                                        },
                                     }
                                 }
                             } else {

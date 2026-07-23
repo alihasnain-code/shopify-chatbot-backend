@@ -199,17 +199,25 @@ model order_fulfillment {
   @@index([orderId], map: "order_fulfillment_orderId_fkey")
 }
 
-model customer_account_auth {
-  id             Int       @id @default(autoincrement())
-  conversationId String
+model code_verifier {
+  id             String   @id
+  state          String   @unique
+  verifier       String
   shop           String
-  state          String    @unique
-  codeVerifier   String
-  accessToken    String?
-  tokenExpiresAt DateTime?
-  createdAt      DateTime  @default(now())
+  conversationId String
+  createdAt      DateTime @default(now())
+}
 
-  @@index([conversationId, shop])
+model customer_access_token {
+  id             String    @id
+  shop           String
+  conversationId String
+  accessToken    String
+  expiresAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime
+
+  @@index([shop, conversationId])
 }
 
 enum user_configs_policiesStatus {

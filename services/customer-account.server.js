@@ -1,82 +1,64 @@
+import crypto from 'node:crypto'
 import { prisma } from '../lib/prisma.js'
 import { logger } from '../config/logger.js'
-import {
-    generateCodeVerifier,
-    generateCodeChallenge,
-    generateState,
-} from './pkce.server.js'
 
-// Discovery responses are static per shop for a long time — cache in
-// memory to avoid a round trip on every auth attempt. Not persisted; a
-// server restart just re-fetches once.
+function generateCodeVerifier() {
+    return crypto.randomBytes(32).toString('base64url')
+}
+function generateCodeChallenge(verifier) {
+    return crypto.createHash('sha256').update(verifier).digest('base64url')
+}
+function generateState() {
+    return crypto.randomBytes(16).toString('base64url')
+}
+
 const discoveryCache = new Map()
 
-async function discoverOAuthConfig(shopDomain) {
-    if (discoveryCache.has(shopDomain)) return discoveryCache.get(shopDomain)
-
-    const res = await fetch(
-        `https://${shopDomain}/.well-known/openid-configuration`
-    )
-    if (!res.ok) throw new Error(`OAuth discovery failed: ${res.status}`)
+async function discoverOpenIdConfig(shop) {
+    if (discoveryCache.has(shop)) return discoveryCache.get(shop)
+    const res = await fetch(`https://${shop}/.well-known/openid-configuration`)
+    if (!res.ok) throw new Error(`OpenID discovery failed: ${res.status}`)
     const config = await res.json()
-    discoveryCache.set(shopDomain, config)
+    discoveryCache.set(shop, config)
     return config
 }
 
-async function discoverMcpEndpoint(shopDomain) {
-    const key = `mcp:${shopDomain}`
-    if (discoveryCache.has(key)) return discoveryCache.get(key)
-
-    const res = await fetch(
-        `https://${shopDomain}/.well-known/customer-account-api`
-    )
-    if (!res.ok)
-        throw new Error(`Customer account API discovery failed: ${res.status}`)
-    const config = await res.json()
-    discoveryCache.set(key, config)
-    return config // { mcp_api, graphql_api, ... }
-}
-
-// Step 1 + 2: build the URL the customer needs to be sent to. Persists
-// state + code_verifier keyed by conversationId so the callback can find
-// them again — this stands in for what a browser session would normally
-// hold, since your chat widget is a guest session, not a logged-in one.
+// Step 1: build the login URL for this specific conversation, and record
+// the verifier/state so the callback can find its way back to the right
+// chat conversation once Shopify redirects back.
 export async function startCustomerAuth(shop, conversationId) {
-    const oauthConfig = await discoverOAuthConfig(shop)
+    const openidConfig = await discoverOpenIdConfig(shop)
 
     const codeVerifier = generateCodeVerifier()
     const codeChallenge = generateCodeChallenge(codeVerifier)
     const state = generateState()
 
-    await prisma.customer_account_auth.create({
-        data: { conversationId, shop, state, codeVerifier },
+    await prisma.code_verifier.create({
+        data: { state, verifier: codeVerifier, shop, conversationId },
     })
 
-    const params = new URLSearchParams({
-        client_id: process.env.SHOPIFY_API_KEY,
-        redirect_uri: process.env.CUSTOMER_AUTH_REDIRECT_URI,
-        response_type: 'code',
-        scope: 'customer-account-mcp-api:full',
-        state,
-        code_challenge: codeChallenge,
-        code_challenge_method: 'S256',
-    })
+    const authUrl = new URL(openidConfig.authorization_endpoint)
+    authUrl.searchParams.set('client_id', process.env.SHOPIFY_API_KEY)
+    authUrl.searchParams.set('response_type', 'code')
+    authUrl.searchParams.set('redirect_uri', process.env.CUSTOMER_AUTH_REDIRECT_URI)
+    authUrl.searchParams.set('scope', 'openid email customer-account-api:full')
+    authUrl.searchParams.set('state', state)
+    authUrl.searchParams.set('code_challenge', codeChallenge)
+    authUrl.searchParams.set('code_challenge_method', 'S256')
 
-    return `${oauthConfig.authorization_endpoint}?${params}`
+    return authUrl.toString()
 }
 
-// Step 3: exchange the authorization code for an access token.
-export async function completeCustomerAuth(shop, state, code) {
-    const authRow = await prisma.customer_account_auth.findUnique({
-        where: { state },
-    })
-    if (!authRow || authRow.shop !== shop) {
-        throw new Error('Invalid or expired auth state')
-    }
+// Step 2: exchange the code, store the token against the same
+// conversationId the state row was created with.
+export async function completeCustomerAuth(state, code) {
+    const verifierRow = await prisma.code_verifier.findUnique({ where: { state } })
+    if (!verifierRow) throw new Error('Invalid or expired state parameter')
 
-    const oauthConfig = await discoverOAuthConfig(shop)
+    const { shop, conversationId, verifier } = verifierRow
+    const openidConfig = await discoverOpenIdConfig(shop)
 
-    const tokenRes = await fetch(oauthConfig.token_endpoint, {
+    const tokenRes = await fetch(openidConfig.token_endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
@@ -84,89 +66,42 @@ export async function completeCustomerAuth(shop, state, code) {
             client_id: process.env.SHOPIFY_API_KEY,
             redirect_uri: process.env.CUSTOMER_AUTH_REDIRECT_URI,
             code,
-            code_verifier: authRow.codeVerifier,
+            code_verifier: verifier,
         }),
     })
 
     if (!tokenRes.ok) {
         const errText = await tokenRes.text()
-        logger.error(
-            { status: tokenRes.status, errText },
-            'Customer account token exchange failed'
-        )
+        logger.error({ status: tokenRes.status, errText }, 'Customer token exchange failed')
         throw new Error('Token exchange failed')
     }
 
     const tokenData = await tokenRes.json()
-    const expiresAt = new Date(Date.now() + tokenData.expires_in * 1000)
+    const expiresAt = tokenData.expires_in
+        ? new Date(Date.now() + tokenData.expires_in * 1000)
+        : null
 
-    await prisma.customer_account_auth.update({
-        where: { state },
-        data: {
-            accessToken: tokenData.access_token,
-            tokenExpiresAt: expiresAt,
-        },
+    await prisma.customer_access_token.create({
+        data: { shop, conversationId, accessToken: tokenData.access_token, expiresAt },
     })
 
-    return authRow.conversationId
+    await prisma.code_verifier.delete({ where: { state } }).catch(() => { })
+
+    return conversationId
 }
 
-// Looks up a still-valid token for this conversation, if one exists.
+// Used by chat.controller.js to check whether this conversation is
+// already logged in before triggering a new auth link.
 export async function getValidCustomerToken(shop, conversationId) {
-    const row = await prisma.customer_account_auth.findFirst({
+    const row = await prisma.customer_access_token.findFirst({
         where: {
             shop,
             conversationId,
-            accessToken: { not: null },
-            tokenExpiresAt: { gt: new Date() },
+            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
         },
         orderBy: { createdAt: 'desc' },
     })
     return row?.accessToken ?? null
 }
 
-// Step 4: authenticated MCP call.
-export async function callCustomerAccountMcp(
-    shop,
-    accessToken,
-    toolName,
-    toolArgs
-) {
-    const { mcp_api } = await discoverMcpEndpoint(shop)
-
-    const res = await fetch(mcp_api, {
-        method: 'POST',
-        headers: {
-            Authorization: accessToken,
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: 1,
-            method: 'tools/call',
-            params: { name: toolName, arguments: toolArgs },
-        }),
-    })
-
-    if (res.status === 401) {
-        // Token expired/invalid mid-conversation — caller should restart
-        // the auth flow.
-        const err = new Error('Customer account token unauthorized')
-        err.status = 401
-        throw err
-    }
-
-    if (!res.ok) {
-        throw new Error(`Customer account MCP call failed: ${res.status}`)
-    }
-
-    const data = await res.json()
-    return data.result || data
-}
-
-export default {
-    startCustomerAuth,
-    completeCustomerAuth,
-    getValidCustomerToken,
-    callCustomerAccountMcp,
-}
+export default { startCustomerAuth, completeCustomerAuth, getValidCustomerToken }
