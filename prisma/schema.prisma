@@ -217,7 +217,7 @@ model customer_access_token {
   id             String    @id @default(cuid())
   shop           String
   conversationId String
-  accessToken    String
+  accessToken    String    @db.Text
   expiresAt      DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
