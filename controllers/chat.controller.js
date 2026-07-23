@@ -182,11 +182,10 @@ export default async function chatController(req, res) {
                                     structuredContent: { chunks },
                                 }
                             } else if (content.name === 'track_order') {
-                                const accessToken =
-                                    await getValidCustomerToken(
-                                        shop,
-                                        conversationId
-                                    )
+                                const accessToken = await getValidCustomerToken(
+                                    shop,
+                                    conversationId
+                                )
 
                                 if (!accessToken) {
                                     const authUrl = await startCustomerAuth(

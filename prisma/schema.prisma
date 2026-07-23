@@ -13,12 +13,21 @@ model aipersonasettings {
   customInstructions String?  @db.Text
   tone               String   @default("standard")
   createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  updatedAt          DateTime
   session            session  @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "AiPersonaSettings_sessionId_fkey")
 }
 
+model code_verifier {
+  id             String   @id @default(cuid())
+  state          String   @unique
+  verifier       String
+  shop           String
+  conversationId String
+  createdAt      DateTime @default(now())
+}
+
 model conversation {
-  id        String    @id
+  id        String    @id @default(cuid())
   shop      String
   createdAt DateTime  @default(now())
   updatedAt DateTime
@@ -28,21 +37,46 @@ model conversation {
   @@index([shop], map: "Conversation_shop_idx")
 }
 
+model customer_access_token {
+  id             String    @id @default(cuid())
+  shop           String
+  conversationId String
+  accessToken    String
+  expiresAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime
+
+  @@index([shop, conversationId])
+}
+
 model form {
   id            Int             @id @default(autoincrement())
   sessionId     String
   name          String
   status        String          @default("active")
   fields        String          @db.LongText
-  version       Int             @default(1)
   position      Int             @default(0)
   createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  updatedAt     DateTime
+  version       Int             @default(1)
   session       session         @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "Form_sessionId_fkey")
-  formResponses form_response[]
+  form_response form_response[]
 
   @@unique([sessionId, name], map: "Form_sessionId_name_key")
   @@index([sessionId], map: "Form_sessionId_idx")
+}
+
+model form_response {
+  id        Int      @id @default(autoincrement())
+  formId    Int
+  sessionId String
+  data      String   @db.Text
+  createdAt DateTime @default(now())
+  form      form     @relation(fields: [formId], references: [id], onDelete: Cascade, map: "FormResponse_formId_fkey")
+  session   session  @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "FormResponse_sessionId_fkey")
+
+  @@index([formId], map: "FormResponse_formId_fkey")
+  @@index([sessionId], map: "FormResponse_sessionId_fkey")
 }
 
 model message {
@@ -54,6 +88,50 @@ model message {
   conversation   conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade, map: "Message_conversationId_fkey")
 
   @@index([conversationId], map: "Message_conversationId_idx")
+}
+
+model order {
+  id                Int                 @id @default(autoincrement())
+  sessionId         String
+  shopifyOrderId    String              @unique
+  orderNumber       Int
+  orderName         String
+  email             String?
+  financialStatus   String?
+  fulfillmentStatus String?
+  currency          String?
+  totalPrice        String?
+  lineItems         String              @db.Text
+  shippingCity      String?
+  shippingProvince  String?
+  shippingCountry   String?
+  cancelledAt       DateTime?
+  cancelReason      String?
+  shopifyCreatedAt  DateTime
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime
+  session           session             @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  order_fulfillment order_fulfillment[]
+
+  @@index([sessionId, orderNumber])
+}
+
+model order_fulfillment {
+  id                   Int      @id @default(autoincrement())
+  shopifyFulfillmentId String   @unique
+  orderId              Int
+  status               String?
+  shipmentStatus       String?
+  trackingCompany      String?
+  trackingNumber       String?
+  trackingUrl          String?
+  shopifyCreatedAt     DateTime
+  shopifyUpdatedAt     DateTime
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime
+  order                order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId], map: "order_fulfillment_orderId_fkey")
 }
 
 model policy_chunks {
@@ -87,12 +165,12 @@ model session {
   refreshTokenExpires DateTime?
   aipersonasettings   aipersonasettings?
   form                form[]
+  form_response       form_response[]
+  order               order[]
   starterquestion     starterquestion[]
   usagesettings       usagesettings?
-  userConfigs         user_configs?
-  formResponses       form_response[]
-  visitorUsages       visitor_usage[]
-  orders              order[]
+  user_configs        user_configs?
+  visitor_usage       visitor_usage[]
 }
 
 model starterquestion {
@@ -101,7 +179,7 @@ model starterquestion {
   question  String   @db.VarChar(150)
   position  Int      @default(0)
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime
   session   session  @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "StarterQuestion_sessionId_fkey")
 
   @@index([sessionId], map: "StarterQuestion_sessionId_idx")
@@ -114,37 +192,20 @@ model usagesettings {
   maxMessagesPerVisitor      Int      @default(100)
   resetPeriod                String   @default("hour")
   createdAt                  DateTime @default(now())
-  updatedAt                  DateTime @updatedAt
+  updatedAt                  DateTime
   session                    session  @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "UsageSettings_sessionId_fkey")
 }
 
-enum SyncStatus {
-  IN_PROGRESS
-  SYNCED
-  FAILED
-}
-
 model user_configs {
-  id             Int        @id @default(autoincrement())
-  sessionId      String     @unique(map: "UserConfigs_sessionId_key")
-  policiesStatus SyncStatus @default(IN_PROGRESS)
+  id             Int                         @id @default(autoincrement())
+  sessionId      String                      @unique(map: "UserConfigs_sessionId_key")
+  policiesStatus user_configs_policiesStatus @default(IN_PROGRESS)
   lastSyncedAt   DateTime?
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
-  session        session    @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "UserConfigs_sessionId_fkey")
+  createdAt      DateTime                    @default(now())
+  updatedAt      DateTime
+  session        session                     @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "UserConfigs_sessionId_fkey")
 
   @@index([sessionId], map: "UserConfigs_sessionId_idx")
-}
-
-model form_response {
-  id        Int      @id @default(autoincrement())
-  formId    Int
-  sessionId String
-  data      String   @db.Text
-  createdAt DateTime @default(now())
-
-  form    form    @relation(fields: [formId], references: [id], onDelete: Cascade, map: "FormResponse_formId_fkey")
-  session session @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "FormResponse_sessionId_fkey")
 }
 
 model visitor_usage {
@@ -153,74 +214,14 @@ model visitor_usage {
   ip           String   @db.VarChar(64)
   windowStart  DateTime @default(now())
   messageCount Int      @default(0)
-  updatedAt    DateTime @updatedAt
-
-  session session @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "VisitorUsage_sessionId_fkey")
+  updatedAt    DateTime
+  session      session  @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "VisitorUsage_sessionId_fkey")
 
   @@unique([sessionId, ip], map: "VisitorUsage_sessionId_ip_key")
 }
 
-model order {
-  id                Int       @id @default(autoincrement())
-  sessionId         String
-  shopifyOrderId    String    @unique
-  orderNumber       Int // e.g. 1002 — from payload.order_number, what the tool matches against
-  orderName         String // e.g. "#1002" — from payload.name, what's shown back to the customer
-  email             String?
-  financialStatus   String?
-  fulfillmentStatus String?
-  currency          String?
-  totalPrice        String?
-  lineItems         String    @db.Text // JSON string: [{ title, variantTitle, quantity }]
-  shippingCity      String?
-  shippingProvince  String?
-  shippingCountry   String?
-  cancelledAt       DateTime?
-  cancelReason      String?
-  shopifyCreatedAt  DateTime
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-
-  session      session             @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  fulfillments order_fulfillment[]
-
-  @@index([sessionId, orderNumber])
-}
-
-model order_fulfillment {
-  id                   Int      @id @default(autoincrement())
-  shopifyFulfillmentId String   @unique
-  orderId              Int
-  status               String?
-  shipmentStatus       String?
-  trackingCompany      String?
-  trackingNumber       String?
-  trackingUrl          String?
-  shopifyCreatedAt     DateTime
-  shopifyUpdatedAt     DateTime
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
-
-  order order @relation(fields: [orderId], references: [id], onDelete: Cascade)
-}
-
-model code_verifier {
-  id             String   @id @default(cuid())
-  state          String   @unique
-  verifier       String
-  shop           String
-  conversationId String
-  createdAt      DateTime @default(now())
-}
-
-model customer_access_token {
-  id             String    @id @default(cuid())
-  shop           String
-  conversationId String
-  accessToken    String
-  expiresAt      DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-
-  @@index([shop, conversationId])
+enum user_configs_policiesStatus {
+  IN_PROGRESS
+  SYNCED
+  FAILED
 }

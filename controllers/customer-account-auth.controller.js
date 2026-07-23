@@ -1,11 +1,16 @@
-import { startCustomerAuth, completeCustomerAuth } from '../services/customer-account.server.js'
+import {
+    startCustomerAuth,
+    completeCustomerAuth,
+} from '../services/customer-account.server.js'
 import { logger } from '../config/logger.js'
 
 // POST /customer-auth/start   body: { shop, conversationId }
 export async function start(req, res) {
     const { shop, conversationId } = req.body
     if (!shop || !conversationId) {
-        return res.status(400).json({ error: 'shop and conversationId are required' })
+        return res
+            .status(400)
+            .json({ error: 'shop and conversationId are required' })
     }
 
     try {

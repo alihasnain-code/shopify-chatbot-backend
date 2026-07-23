@@ -40,7 +40,10 @@ export async function startCustomerAuth(shop, conversationId) {
     const authUrl = new URL(openidConfig.authorization_endpoint)
     authUrl.searchParams.set('client_id', process.env.SHOPIFY_API_KEY)
     authUrl.searchParams.set('response_type', 'code')
-    authUrl.searchParams.set('redirect_uri', process.env.CUSTOMER_AUTH_REDIRECT_URI)
+    authUrl.searchParams.set(
+        'redirect_uri',
+        process.env.CUSTOMER_AUTH_REDIRECT_URI
+    )
     authUrl.searchParams.set('scope', 'openid email customer-account-api:full')
     authUrl.searchParams.set('state', state)
     authUrl.searchParams.set('code_challenge', codeChallenge)
@@ -52,7 +55,9 @@ export async function startCustomerAuth(shop, conversationId) {
 // Step 2: exchange the code, store the token against the same
 // conversationId the state row was created with.
 export async function completeCustomerAuth(state, code) {
-    const verifierRow = await prisma.code_verifier.findUnique({ where: { state } })
+    const verifierRow = await prisma.code_verifier.findUnique({
+        where: { state },
+    })
     if (!verifierRow) throw new Error('Invalid or expired state parameter')
 
     const { shop, conversationId, verifier } = verifierRow
@@ -72,7 +77,10 @@ export async function completeCustomerAuth(state, code) {
 
     if (!tokenRes.ok) {
         const errText = await tokenRes.text()
-        logger.error({ status: tokenRes.status, errText }, 'Customer token exchange failed')
+        logger.error(
+            { status: tokenRes.status, errText },
+            'Customer token exchange failed'
+        )
         throw new Error('Token exchange failed')
     }
 
@@ -82,10 +90,15 @@ export async function completeCustomerAuth(state, code) {
         : null
 
     await prisma.customer_access_token.create({
-        data: { shop, conversationId, accessToken: tokenData.access_token, expiresAt },
+        data: {
+            shop,
+            conversationId,
+            accessToken: tokenData.access_token,
+            expiresAt,
+        },
     })
 
-    await prisma.code_verifier.delete({ where: { state } }).catch(() => { })
+    await prisma.code_verifier.delete({ where: { state } }).catch(() => {})
 
     return conversationId
 }
@@ -104,4 +117,8 @@ export async function getValidCustomerToken(shop, conversationId) {
     return row?.accessToken ?? null
 }
 
-export default { startCustomerAuth, completeCustomerAuth, getValidCustomerToken }
+export default {
+    startCustomerAuth,
+    completeCustomerAuth,
+    getValidCustomerToken,
+}
