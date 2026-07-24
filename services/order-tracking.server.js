@@ -1,4 +1,4 @@
-import prisma from '../lib/prisma.js'
+import { prisma } from '../lib/prisma.js'
 
 // Every webhook needs the offline session id to satisfy the sessionId FK —
 // same lookup pattern used in form.controller.js / questions.controller.js.
@@ -231,10 +231,10 @@ async function verifyAndBuildOrder(shop, orderNumberInput, contactValue) {
     const isMatch =
         field === 'phone'
             ? order.phone &&
-              normalizePhone(order.phone) === normalizePhone(contactValue)
+            normalizePhone(order.phone) === normalizePhone(contactValue)
             : order.email &&
-              order.email.trim().toLowerCase() ===
-                  String(contactValue).trim().toLowerCase()
+            order.email.trim().toLowerCase() ===
+            String(contactValue).trim().toLowerCase()
 
     if (!isMatch) return { found: false }
 
