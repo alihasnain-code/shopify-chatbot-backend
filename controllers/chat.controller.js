@@ -19,6 +19,7 @@ import {
 } from '../services/conversation-store.js'
 import { logger } from '../config/logger.js'
 import { searchPolicies } from '../services/policy.server.js'
+import { getVerificationField } from '../services/order-tracking.server.js'
 import {
     resolvePromptType,
     sanitizeCustomInstructions,
@@ -176,6 +177,20 @@ export default async function chatController(req, res) {
                                 )
                                 toolUseResponse = {
                                     structuredContent: { chunks },
+                                }
+                            } else if (content.name === 'track_order') {
+                                const field = await getVerificationField(shop)
+                                send({
+                                    type: 'order_verification_required',
+                                    orderNumber:
+                                        content.input.orderNumber || null,
+                                    field, // 'email' | 'phone'
+                                })
+                                toolUseResponse = {
+                                    structuredContent: {
+                                        message:
+                                            'A form has been shown to the customer to verify their identity and look up the order. No order data is available yet — wait for them to complete it.',
+                                    },
                                 }
                             } else {
                                 toolUseResponse = await mcpClient.callTool(

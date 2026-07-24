@@ -178,12 +178,29 @@ const searchPolicies = {
     required: ['query'],
 }
 
+const trackOrder = {
+    type: 'object',
+    properties: {
+        orderNumber: {
+            type: 'string',
+            description:
+                "The customer's order number if they've already mentioned it, e.g. '1002' or '#1002'. Omit if they haven't given one yet — the customer will be prompted for it separately.",
+        },
+    },
+}
+
 export const LOCAL_TOOLS = [
     {
         name: 'search_policies',
         description:
             "Search the store's policies (shipping, returns, refunds, terms, privacy, etc.) for information relevant to a customer question.",
         input_schema: searchPolicies,
+    },
+    {
+        name: 'track_order',
+        description:
+            "Use this whenever the customer is asking about the status, location, or delivery of an order they've placed — phrases like 'where is my order', 'track my order', 'has my package shipped', 'when will it arrive', mentioning an order number, or similar. This will show the customer a form to verify their identity and look up the order; it does not return order data directly.",
+        input_schema: trackOrder,
     },
 ]
 
