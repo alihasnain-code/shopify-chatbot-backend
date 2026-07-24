@@ -178,29 +178,12 @@ const searchPolicies = {
     required: ['query'],
 }
 
-const trackOrder = {
-    type: 'object',
-    properties: {
-        orderNumber: {
-            type: 'string',
-            description: "The customer's order number, e.g. '1002' or '#1002'.",
-        },
-    },
-    required: ['orderNumber'],
-}
-
 export const LOCAL_TOOLS = [
     {
         name: 'search_policies',
         description:
             "Search the store's policies (shipping, returns, refunds, terms, privacy, etc.) for information relevant to a customer question.",
         input_schema: searchPolicies,
-    },
-    {
-        name: 'track_order',
-        description:
-            "Look up the status of a customer's order by order number. If the customer isn't logged in yet, this shows them a login link first.",
-        input_schema: trackOrder,
     },
 ]
 

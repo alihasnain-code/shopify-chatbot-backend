@@ -113,6 +113,7 @@ model usagesettings {
   maxMessagesPerConversation Int      @default(15)
   maxMessagesPerVisitor      Int      @default(100)
   resetPeriod                String   @default("hour")
+  verificationMethod         String   @default("email")
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
   session                    session  @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "UsageSettings_sessionId_fkey")
@@ -164,9 +165,12 @@ model order {
   id                Int       @id @default(autoincrement())
   sessionId         String
   shopifyOrderId    String    @unique
-  orderNumber       Int // e.g. 1002 — from payload.order_number, what the tool matches against
-  orderName         String // e.g. "#1002" — from payload.name, what's shown back to the customer
+  orderNumber       Int
+  orderName         String
   email             String?
+  emailSource       String? // 'root' | 'customer' | null
+  phone             String?
+  phoneSource       String? // 'root' | 'customer' | 'shipping_address' | 'billing_address' | null
   financialStatus   String?
   fulfillmentStatus String?
   currency          String?
@@ -202,25 +206,4 @@ model order_fulfillment {
   updatedAt            DateTime @updatedAt
 
   order order @relation(fields: [orderId], references: [id], onDelete: Cascade)
-}
-
-model code_verifier {
-  id             String   @id @default(cuid())
-  state          String   @unique
-  verifier       String
-  shop           String
-  conversationId String
-  createdAt      DateTime @default(now())
-}
-
-model customer_access_token {
-  id             String    @id @default(cuid())
-  shop           String
-  conversationId String
-  accessToken    String    @db.Text
-  expiresAt      DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-
-  @@index([shop, conversationId])
 }

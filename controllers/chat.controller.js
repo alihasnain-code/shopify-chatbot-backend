@@ -23,10 +23,6 @@ import {
     resolvePromptType,
     sanitizeCustomInstructions,
 } from '../services/persona.server.js'
-import {
-    getValidCustomerToken,
-    startCustomerAuth,
-} from '../services/customer-account.server.js'
 import { LOCAL_TOOLS } from '../services/tool-schemas.js'
 
 export default async function chatController(req, res) {
@@ -180,41 +176,6 @@ export default async function chatController(req, res) {
                                 )
                                 toolUseResponse = {
                                     structuredContent: { chunks },
-                                }
-                            } else if (content.name === 'track_order') {
-                                const accessToken = await getValidCustomerToken(
-                                    shop,
-                                    conversationId
-                                )
-
-                                if (!accessToken) {
-                                    const authUrl = await startCustomerAuth(
-                                        shop,
-                                        conversationId
-                                    )
-                                    send({
-                                        type: 'customer_auth_required',
-                                        authUrl,
-                                    })
-                                    toolUseResponse = {
-                                        structuredContent: {
-                                            requiresLogin: true,
-                                            message:
-                                                "The customer needs to log in first to view their order. A login link has been shown to them — once they've logged in, ask them to try again.",
-                                        },
-                                    }
-                                } else {
-                                    // Logged in — actual order lookup
-                                    // (MCP tool vs our own DB) is decided
-                                    // later. For now just confirm
-                                    // verification succeeded.
-                                    toolUseResponse = {
-                                        structuredContent: {
-                                            verified: true,
-                                            message:
-                                                'The customer is verified and logged in. Let them know order lookup is being finalized.',
-                                        },
-                                    }
                                 }
                             } else {
                                 toolUseResponse = await mcpClient.callTool(
