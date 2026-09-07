@@ -13,6 +13,27 @@ const searchCatalog = {
                 query: {
                     type: 'string',
                     description: 'Search query string.',
+                    // description: 'Search for products. Supports price filtering via filters.price.min/max.',
+                },
+                filters: {
+                    type: 'object',
+                    description: 'Narrowing criteria for catalog results.',
+                    properties: {
+                        price: {
+                            type: 'object',
+                            description: 'Price range filter (amounts in minor currency units).',
+                            properties: {
+                                min: {
+                                    type: 'integer',
+                                    description: 'Minimum price in minor currency units.',
+                                },
+                                max: {
+                                    type: 'integer',
+                                    description: 'Maximum price in minor currency units.',
+                                },
+                            },
+                        },
+                    },
                 },
                 // NOTE: no `limit` field here on purpose — the result
                 // count is hard-enforced server-side in mcp-client.js
