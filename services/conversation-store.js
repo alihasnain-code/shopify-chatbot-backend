@@ -35,20 +35,29 @@ export async function getUsageContextForShop(shop) {
         where: { shop },
         select: {
             id: true,
+            tokensUsed: true,
             usagesettings: true,
             aipersonasettings: {
                 select: { tone: true, customInstructions: true },
+            },
+            plan: {
+                select: { tokenLimit: true },
             },
         },
     })
 
     return {
         sessionId: session?.id ?? null,
+        tokensUsed: session?.tokensUsed ?? 0,
+        tokenLimit: session?.plan?.tokenLimit ?? null, // null = unlimited
         usageSettings: session?.usagesettings ?? {
             maxMessagesPerConversation: 15,
             maxMessagesPerVisitor: 100,
             resetPeriod: 'hour',
+            limitReachedMessage: null,
         },
+        limitReachedMessage:
+            session?.usagesettings?.limitReachedMessage ?? null,
         tone: session?.aipersonasettings?.tone ?? 'standard',
         customInstructions:
             session?.aipersonasettings?.customInstructions ?? null,

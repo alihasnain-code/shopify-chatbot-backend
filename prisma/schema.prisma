@@ -85,6 +85,8 @@ model session {
   emailVerified       Boolean?           @default(false)
   refreshToken        String?
   refreshTokenExpires DateTime?
+  tokensUsed          Int                @default(0) @map("tokens_used")
+  usageResetAt        DateTime?          @map("usage_reset_at")
   aipersonasettings   aipersonasettings?
   form                form[]
   starterquestion     starterquestion[]
@@ -93,6 +95,9 @@ model session {
   formResponses       form_response[]
   visitorUsages       visitor_usage[]
   orders              order[]
+  plan                plan?              @relation(fields: [planId], references: [id])
+  planId              Int?
+  charges             charges[]
 }
 
 model starterquestion {
@@ -114,6 +119,7 @@ model usagesettings {
   maxMessagesPerVisitor      Int      @default(100)
   resetPeriod                String   @default("hour")
   verificationMethod         String   @default("email")
+  limitReachedMessage        String?  @db.Text
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
   session                    session  @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "UsageSettings_sessionId_fkey")
@@ -206,4 +212,70 @@ model order_fulfillment {
   updatedAt            DateTime @updatedAt
 
   order order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model plan {
+  id           Int      @id @default(autoincrement())
+  type         String
+  name         String   @unique
+  price        Decimal  @db.Decimal(8, 2)
+  interval     String?
+  cappedAmount Decimal? @map("capped_amount") @db.Decimal(8, 2)
+  terms        String?
+  trialDays    Int?     @default(0) @map("trial_days")
+
+  tokenLimit Int?  @map("token_limit")
+  features   Json?
+
+  test Boolean @default(false)
+
+  onInstall Boolean @default(false) @map("on_install")
+
+  createdAt DateTime? @default(now()) @map("created_at")
+  updatedAt DateTime? @updatedAt @map("updated_at")
+
+  sessions session[]
+  charges  charges[]
+
+  @@map("plans")
+}
+
+model charges {
+  id       Int    @id @default(autoincrement())
+  chargeId BigInt @map("charge_id")
+
+  test Boolean @default(false)
+
+  status       String?
+  name         String?
+  terms        String?
+  type         String
+  price        Decimal  @db.Decimal(8, 2)
+  interval     String?
+  cappedAmount Decimal? @map("capped_amount") @db.Decimal(8, 2)
+  trialDays    Int?     @map("trial_days")
+
+  billingOn   DateTime? @map("billing_on")
+  activatedOn DateTime? @map("activated_on")
+  trialEndsOn DateTime? @map("trial_ends_on")
+  cancelledOn DateTime? @map("cancelled_on")
+  expiresOn   DateTime? @map("expires_on")
+
+  planId Int?
+  plan   plan? @relation(fields: [planId], references: [id])
+
+  description     String?
+  referenceCharge BigInt? @map("reference_charge")
+
+  sessionId String  @map("session_id")
+  session   session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime? @default(now()) @map("created_at")
+  updatedAt DateTime? @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([sessionId])
+  @@index([planId])
+  @@index([chargeId])
+  @@map("charges")
 }

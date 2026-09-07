@@ -71,12 +71,17 @@ export function createOpenAIService() {
             messages: openaiMessages,
             tools: openaiTools,
             stream: true,
+            stream_options: { include_usage: true },
         })
 
         let text = ''
         const toolCallsByIndex = new Map()
+        let usage = null
 
         for await (const chunk of stream) {
+            if (chunk.usage) {
+                usage = chunk.usage
+            }
             logger.debug({ chunk }, 'Received stream chunk')
             const delta = chunk.choices?.[0]?.delta
 
@@ -144,7 +149,7 @@ export function createOpenAIService() {
             }
         }
 
-        return finalMessage
+        return { finalMessage, usage }
     }
 
     const getSystemPrompt = (promptType, customInstructions) => {

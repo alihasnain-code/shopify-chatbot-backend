@@ -1,3 +1,4 @@
+import { prisma } from '../lib/prisma.js'
 import { randomUUID } from 'node:crypto'
 import MCPClient from '../services/mcp-client.js'
 import { createOpenAIService } from '../services/openai.server.js'
@@ -53,7 +54,15 @@ export default async function chatController(req, res) {
 
         const [
             pastMessages,
-            { sessionId, usageSettings, tone, customInstructions },
+            {
+                sessionId,
+                usageSettings,
+                tone,
+                customInstructions,
+                tokensUsed,
+                tokenLimit,
+                limitReachedMessage,
+            },
         ] = await Promise.all([
             getMessages(conversationId),
             getUsageContextForShop(shop),
@@ -92,10 +101,17 @@ export default async function chatController(req, res) {
             )
 
             if (!visitorCheck.allowed) {
-                send({
-                    type: 'limit_reached',
-                    error: AppConfig.errorMessages.visitorLimitReached,
-                })
+                const msg =
+                    limitReachedMessage ||
+                    AppConfig.errorMessages.visitorLimitReached
+                send({ type: 'limit_reached', error: msg })
+                return
+            }
+
+            if (tokenLimit !== null && tokensUsed >= tokenLimit) {
+                const msg =
+                    limitReachedMessage || AppConfig.errorMessages.limitReached
+                send({ type: 'limit_reached', error: msg })
                 return
             }
         }
@@ -129,137 +145,159 @@ export default async function chatController(req, res) {
         let finalMessage = { stop_reason: null }
         let pendingToolResults = []
 
+        let totalTokensUsed = 0
         while (finalMessage.stop_reason !== 'end_turn') {
-            finalMessage = await openaiService.streamConversation(
-                {
-                    messages: buildModelMessages(conversationHistory),
-                    tools: availableTools,
-                    promptType,
-                    customInstructions: safeCustomInstructions,
-                },
-                {
-                    onText: (chunk) => {
-                        send({ type: 'chunk', chunk })
+            const { finalMessage: msg, usage } =
+                await openaiService.streamConversation(
+                    {
+                        messages: buildModelMessages(conversationHistory),
+                        tools: availableTools,
+                        promptType,
+                        customInstructions: safeCustomInstructions,
                     },
+                    {
+                        onText: (chunk) => {
+                            send({ type: 'chunk', chunk })
+                        },
 
-                    onMessage: (msg) => {
-                        conversationHistory.push({
-                            role: msg.role,
-                            content: msg.content,
-                        })
-                        appendMessage(conversationId, msg.role, msg.content)
-                        send({ type: 'message_complete' })
+                        onMessage: (msg) => {
+                            conversationHistory.push({
+                                role: msg.role,
+                                content: msg.content,
+                            })
+                            appendMessage(conversationId, msg.role, msg.content)
+                            send({ type: 'message_complete' })
 
-                        if (pendingToolResults.length) {
-                            for (const result of pendingToolResults) {
-                                send({ type: 'tool_result', ...result })
-                            }
-                            pendingToolResults = []
-                        }
-                    },
-
-                    onToolUse: async (content) => {
-                        send({
-                            type: 'tool_use',
-                            tool_use_message: `Calling tool: ${content.name}`,
-                        })
-
-                        // Never let a hard failure (network error, MCP
-                        // timeout, etc.) skip writing a tool_result — an
-                        // unanswered tool_call_id permanently breaks every
-                        // future turn in this conversation with OpenAI.
-                        let toolUseResponse
-                        try {
-                            if (content.name === 'search_policies') {
-                                const chunks = await searchPolicies(
-                                    shop,
-                                    content.input.query
-                                )
-                                toolUseResponse = {
-                                    structuredContent: { chunks },
+                            if (pendingToolResults.length) {
+                                for (const result of pendingToolResults) {
+                                    send({ type: 'tool_result', ...result })
                                 }
-                            } else if (content.name === 'track_order') {
-                                const field = await getVerificationField(shop)
-                                send({
-                                    type: 'order_verification_required',
-                                    orderNumber:
-                                        content.input.orderNumber || null,
-                                    field, // 'email' | 'phone'
-                                })
-                                toolUseResponse = {
-                                    structuredContent: {
-                                        message:
-                                            'A form has been shown to the customer to verify their identity and look up the order. No order data is available yet — wait for them to complete it.',
-                                    },
-                                }
-                            } else {
-                                toolUseResponse = await mcpClient.callTool(
-                                    content.name,
-                                    content.input
-                                )
+                                pendingToolResults = []
                             }
-                        } catch (err) {
-                            toolUseResponse = {
-                                error: {
-                                    message: err.message || 'Tool call failed',
-                                },
-                            }
-                        }
+                        },
 
-                        try {
-                            if (toolUseResponse.error) {
-                                await toolService.handleToolError(
-                                    toolUseResponse
-                                )
-                            } else {
-                                const result = toolService.handleToolSuccess(
-                                    toolUseResponse,
-                                    content.name
-                                )
-                                if (result) pendingToolResults.push(result)
+                        onToolUse: async (content) => {
+                            send({
+                                type: 'tool_use',
+                                tool_use_message: `Calling tool: ${content.name}`,
+                            })
 
-                                if (
-                                    AppConfig.tools.cartToolNames.includes(
-                                        content.name
-                                    ) &&
-                                    mcpClient.cartId !== existingCartId
-                                ) {
-                                    await setCartId(
-                                        conversationId,
-                                        mcpClient.cartId
+                            // Never let a hard failure (network error, MCP
+                            // timeout, etc.) skip writing a tool_result — an
+                            // unanswered tool_call_id permanently breaks every
+                            // future turn in this conversation with OpenAI.
+                            let toolUseResponse
+                            try {
+                                if (content.name === 'search_policies') {
+                                    const chunks = await searchPolicies(
+                                        shop,
+                                        content.input.query
+                                    )
+                                    toolUseResponse = {
+                                        structuredContent: { chunks },
+                                    }
+                                } else if (content.name === 'track_order') {
+                                    const field =
+                                        await getVerificationField(shop)
+                                    send({
+                                        type: 'order_verification_required',
+                                        orderNumber:
+                                            content.input.orderNumber || null,
+                                        field, // 'email' | 'phone'
+                                    })
+                                    toolUseResponse = {
+                                        structuredContent: {
+                                            message:
+                                                'A form has been shown to the customer to verify their identity and look up the order. No order data is available yet — wait for them to complete it.',
+                                        },
+                                    }
+                                } else {
+                                    toolUseResponse = await mcpClient.callTool(
+                                        content.name,
+                                        content.input
                                     )
                                 }
+                            } catch (err) {
+                                toolUseResponse = {
+                                    error: {
+                                        message:
+                                            err.message || 'Tool call failed',
+                                    },
+                                }
                             }
-                        } catch (err) {
-                            logger.error(error)
-                        }
 
-                        // Always persist the FULL payload — identical to
-                        // what the frontend receives. Shrinking for the
-                        // model happens later, in buildModelMessages(), and
-                        // never touches what's stored here.
-                        const toolResultContent = [
-                            {
-                                type: 'tool_result',
-                                tool_use_id: content.id,
-                                content: JSON.stringify(
-                                    toolUseResponse.error
-                                        ? toolUseResponse
-                                        : toolUseResponse.structuredContent
-                                ),
-                            },
-                        ]
+                            try {
+                                if (toolUseResponse.error) {
+                                    await toolService.handleToolError(
+                                        toolUseResponse
+                                    )
+                                } else {
+                                    const result =
+                                        toolService.handleToolSuccess(
+                                            toolUseResponse,
+                                            content.name
+                                        )
+                                    if (result) pendingToolResults.push(result)
 
-                        conversationHistory.push({
-                            role: 'user',
-                            content: toolResultContent,
-                        })
-                        appendMessage(conversationId, 'user', toolResultContent)
+                                    if (
+                                        AppConfig.tools.cartToolNames.includes(
+                                            content.name
+                                        ) &&
+                                        mcpClient.cartId !== existingCartId
+                                    ) {
+                                        await setCartId(
+                                            conversationId,
+                                            mcpClient.cartId
+                                        )
+                                    }
+                                }
+                            } catch (error) {
+                                logger.error(error)
+                            }
 
-                        send({ type: 'new_message' })
-                    },
-                }
-            )
+                            // Always persist the FULL payload — identical to
+                            // what the frontend receives. Shrinking for the
+                            // model happens later, in buildModelMessages(), and
+                            // never touches what's stored here.
+                            const toolResultContent = [
+                                {
+                                    type: 'tool_result',
+                                    tool_use_id: content.id,
+                                    content: JSON.stringify(
+                                        toolUseResponse.error
+                                            ? toolUseResponse
+                                            : toolUseResponse.structuredContent
+                                    ),
+                                },
+                            ]
+
+                            conversationHistory.push({
+                                role: 'user',
+                                content: toolResultContent,
+                            })
+                            appendMessage(
+                                conversationId,
+                                'user',
+                                toolResultContent
+                            )
+
+                            send({ type: 'new_message' })
+                        },
+                    }
+                )
+
+            finalMessage = msg
+
+            if (usage?.total_tokens) {
+                totalTokensUsed += usage.total_tokens
+            }
+        }
+
+        if (sessionId && totalTokensUsed > 0) {
+            await prisma.session.update({
+                where: { id: sessionId },
+                data: { tokensUsed: { increment: totalTokensUsed } },
+            })
         }
 
         send({ type: 'end_turn' })
