@@ -91,22 +91,22 @@ export default async function chatController(req, res) {
         // sessionId missing (no offline session row yet for this shop) — fail
         // open rather than crash; this shouldn't happen for an installed app.
         if (sessionId) {
-            const visitorIp = getVisitorIp(req)
-            const resetPeriodMs = getResetPeriodMs(usageSettings.resetPeriod)
-            const visitorCheck = await checkAndIncrementVisitorUsage(
-                sessionId,
-                visitorIp,
-                usageSettings.maxMessagesPerVisitor,
-                resetPeriodMs
-            )
+            // const visitorIp = getVisitorIp(req)
+            // const resetPeriodMs = getResetPeriodMs(usageSettings.resetPeriod)
+            // const visitorCheck = await checkAndIncrementVisitorUsage(
+            //     sessionId,
+            //     visitorIp,
+            //     usageSettings.maxMessagesPerVisitor,
+            //     resetPeriodMs
+            // )
 
-            if (!visitorCheck.allowed) {
-                const msg =
-                    limitReachedMessage ||
-                    AppConfig.errorMessages.visitorLimitReached
-                send({ type: 'limit_reached', error: msg })
-                return
-            }
+            // if (!visitorCheck.allowed) {
+            //     const msg =
+            //         limitReachedMessage ||
+            //         AppConfig.errorMessages.visitorLimitReached
+            //     send({ type: 'limit_reached', error: msg })
+            //     return
+            // }
 
             if (tokenLimit !== null && tokensUsed >= tokenLimit) {
                 const msg =
