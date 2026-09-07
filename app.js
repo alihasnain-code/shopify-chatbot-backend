@@ -5,7 +5,6 @@ import cartRouter from './routes/cart.route.js'
 import orderTrackingRouter from './routes/order-tracking.routes.js'
 import questionsRouter from './routes/questions.routes.js'
 import formsRouter from './routes/forms.routes.js'
-import './workers/policySyncWorker.js'
 import { logger } from './config/logger.js'
 
 const app = express()

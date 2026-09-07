@@ -13,7 +13,6 @@ const searchCatalog = {
                 query: {
                     type: 'string',
                     description: 'Search query string.',
-                    // description: 'Search for products. Supports price filtering via filters.price.min/max.',
                 },
                 filters: {
                     type: 'object',
@@ -21,15 +20,17 @@ const searchCatalog = {
                     properties: {
                         price: {
                             type: 'object',
-                            description: "Price range filter.",
+                            description: 'Price range filter.',
                             properties: {
                                 min: {
                                     type: 'integer',
-                                    description: 'Minimum price in minor currency units.',
+                                    description:
+                                        'Minimum price in minor currency units.',
                                 },
                                 max: {
                                     type: 'integer',
-                                    description: 'Maximum price in minor currency units.',
+                                    description:
+                                        'Maximum price in minor currency units.',
                                 },
                             },
                         },
@@ -187,18 +188,6 @@ const updateCart = {
     required: ['cart'],
 }
 
-const searchPolicies = {
-    type: 'object',
-    properties: {
-        query: {
-            type: 'string',
-            description:
-                "The customer's question, in their own words (e.g. 'can I return a used item', 'do you ship to Canada').",
-        },
-    },
-    required: ['query'],
-}
-
 const trackOrder = {
     type: 'object',
     properties: {
@@ -210,12 +199,24 @@ const trackOrder = {
     },
 }
 
+const searchShopPoliciesAndFaqs = {
+    type: 'object',
+    properties: {
+        query: {
+            type: 'string',
+            description:
+                "The customer's question, in their own words (e.g. 'can I return a used item', 'do you ship to Canada').",
+        },
+    },
+    required: ['query'],
+}
+
 export const LOCAL_TOOLS = [
     {
-        name: 'search_policies',
+        name: 'search_shop_policies_and_faqs',
         description:
-            "Search the store's policies (shipping, returns, refunds, terms, privacy, etc.) for information relevant to a customer question.",
-        input_schema: searchPolicies,
+            "Search the store's official Shopify-hosted policies and FAQs (shipping, returns, refunds, etc.) for information relevant to a customer question.",
+        input_schema: searchShopPoliciesAndFaqs,
     },
     {
         name: 'track_order',
@@ -233,7 +234,6 @@ export const MINIMAL_TOOL_SCHEMAS = {
     cancel_cart: noParams,
     create_cart: createCart,
     update_cart: updateCart,
-    search_policies: searchPolicies,
 }
 
 export default MINIMAL_TOOL_SCHEMAS

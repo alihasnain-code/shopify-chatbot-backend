@@ -56,17 +56,6 @@ model message {
   @@index([conversationId], map: "Message_conversationId_idx")
 }
 
-model policy_chunks {
-  id          Int      @id @default(autoincrement())
-  shop_domain String   @db.VarChar(255)
-  policy_type String   @db.VarChar(100)
-  text_chunk  String   @db.Text
-  embedding   String   @db.LongText
-  created_at  DateTime @default(now())
-
-  @@index([shop_domain, policy_type])
-}
-
 model session {
   id                  String             @id
   shop                String
@@ -91,7 +80,6 @@ model session {
   form                form[]
   starterquestion     starterquestion[]
   usagesettings       usagesettings?
-  userConfigs         user_configs?
   formResponses       form_response[]
   visitorUsages       visitor_usage[]
   orders              order[]
@@ -123,24 +111,6 @@ model usagesettings {
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
   session                    session  @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "UsageSettings_sessionId_fkey")
-}
-
-enum SyncStatus {
-  IN_PROGRESS
-  SYNCED
-  FAILED
-}
-
-model user_configs {
-  id             Int        @id @default(autoincrement())
-  sessionId      String     @unique(map: "UserConfigs_sessionId_key")
-  policiesStatus SyncStatus @default(IN_PROGRESS)
-  lastSyncedAt   DateTime?
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
-  session        session    @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "UserConfigs_sessionId_fkey")
-
-  @@index([sessionId], map: "UserConfigs_sessionId_idx")
 }
 
 model form_response {

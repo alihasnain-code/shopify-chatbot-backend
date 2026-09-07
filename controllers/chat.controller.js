@@ -18,8 +18,8 @@ import {
     getCartId,
     setCartId,
 } from '../services/conversation-store.js'
+import { searchShopPoliciesAndFaqs } from '../services/shopify-policy-mcp.server.js'
 import { logger } from '../config/logger.js'
-import { searchPolicies } from '../services/policy.server.js'
 import { getVerificationField } from '../services/order-tracking.server.js'
 import {
     resolvePromptType,
@@ -188,13 +188,19 @@ export default async function chatController(req, res) {
                             // future turn in this conversation with OpenAI.
                             let toolUseResponse
                             try {
-                                if (content.name === 'search_policies') {
-                                    const chunks = await searchPolicies(
-                                        shop,
-                                        content.input.query
-                                    )
+                                if (
+                                    content.name ===
+                                    'search_shop_policies_and_faqs'
+                                ) {
+                                    const buyerIp = getVisitorIp(req)
+                                    const results =
+                                        await searchShopPoliciesAndFaqs(
+                                            shop,
+                                            content.input.query,
+                                            buyerIp
+                                        )
                                     toolUseResponse = {
-                                        structuredContent: { chunks },
+                                        structuredContent: { results },
                                     }
                                 } else if (content.name === 'track_order') {
                                     const field =
