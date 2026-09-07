@@ -21,7 +21,7 @@ const searchCatalog = {
                     properties: {
                         price: {
                             type: 'object',
-                            description: 'Price range filter (amounts in minor currency units).',
+                            description: "Price range filter.",
                             properties: {
                                 min: {
                                     type: 'integer',
