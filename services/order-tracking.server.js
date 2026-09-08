@@ -1,19 +1,6 @@
 import { prisma } from '../lib/prisma.js'
+import { logger } from '../config/logger.js'
 
-// Every webhook needs the offline session id to satisfy the sessionId FK —
-// same lookup pattern used in form.controller.js / questions.controller.js.
-async function getSessionIdForShop(shop) {
-    const session = await prisma.session.findFirst({
-        where: { shop, isOnline: false },
-        select: { id: true },
-    })
-    return session?.id ?? null
-}
-
-// Root fields first (contact_email/email is what the buyer actually typed
-// at checkout for THIS order), customer.email as a fallback only — the
-// customer object reflects their CURRENT profile, which can drift from
-// what was true when this specific order was placed.
 function extractEmail(payload) {
     if (payload.contact_email)
         return { value: payload.contact_email, source: 'root' }
@@ -23,9 +10,6 @@ function extractEmail(payload) {
     return { value: null, source: null }
 }
 
-// Same priority logic for phone — root contact phone first, since that's
-// what was entered for this order specifically. shipping/billing address
-// phone is last resort (could belong to a gift recipient, not the buyer).
 function extractPhone(payload) {
     if (payload.phone) return { value: payload.phone, source: 'root' }
     if (payload.customer?.phone)
@@ -43,18 +27,6 @@ function extractPhone(payload) {
     return { value: null, source: null }
 }
 
-// Only the fields the tracking bot ever needs — no full address, no
-// customer object, no payment/discount internals.
-function extractLineItems(lineItems = []) {
-    return lineItems.map((li) => ({
-        title: li.title,
-        variantTitle: li.variant_title || null,
-        quantity: li.quantity,
-    }))
-}
-
-// City/province/country only — never street address, even though the
-// webhook payload includes it.
 function extractAddress(address) {
     if (!address) return { city: null, province: null, country: null }
     return {
@@ -64,126 +36,60 @@ function extractAddress(address) {
     }
 }
 
-// Used by orders/create, orders/updated, and orders/cancelled — all three
-// deliver the same full Order resource shape, so one upsert handles all of
-// them. orders/cancelled just happens to arrive with cancelled_at set.
-export async function upsertOrderFromWebhook(shop, payload) {
-    const sessionId = await getSessionIdForShop(shop)
-    if (!sessionId) {
-        // No installed offline session for this shop yet — nothing to link
-        // the row to. Log and bail rather than crash the webhook (Shopify
-        // will retry, but a missing session means retries won't help
-        // anyway, so we just skip silently here).
-        console.error(
-            `No offline session found for shop ${shop}, skipping order webhook`
-        )
-        return
-    }
-
-    const { city, province, country } = extractAddress(payload.shipping_address)
-
-    // Both are always extracted and stored, tagged with where each came
-    // from. Which one is USED for verification is decided later, at
-    // lookup time, based on the shop's current verificationMethod setting
-    // — so switching that setting never requires re-extracting anything.
-    const email = extractEmail(payload)
-    const phone = extractPhone(payload)
-
-    await prisma.order.upsert({
-        where: { shopifyOrderId: String(payload.id) },
-        create: {
-            sessionId,
-            shopifyOrderId: String(payload.id),
-            orderNumber: payload.order_number,
-            orderName: payload.name,
-            email: email.value,
-            emailSource: email.source,
-            phone: phone.value,
-            phoneSource: phone.source,
-            financialStatus: payload.financial_status || null,
-            fulfillmentStatus: payload.fulfillment_status || null,
-            currency: payload.currency || null,
-            totalPrice:
-                payload.current_total_price || payload.total_price || null,
-            lineItems: JSON.stringify(extractLineItems(payload.line_items)),
-            shippingCity: city,
-            shippingProvince: province,
-            shippingCountry: country,
-            cancelledAt: payload.cancelled_at
-                ? new Date(payload.cancelled_at)
-                : null,
-            cancelReason: payload.cancel_reason || null,
-            shopifyCreatedAt: new Date(payload.created_at),
-        },
-        update: {
-            email: email.value,
-            emailSource: email.source,
-            phone: phone.value,
-            phoneSource: phone.source,
-            financialStatus: payload.financial_status || null,
-            fulfillmentStatus: payload.fulfillment_status || null,
-            totalPrice:
-                payload.current_total_price || payload.total_price || null,
-            lineItems: JSON.stringify(extractLineItems(payload.line_items)),
-            cancelledAt: payload.cancelled_at
-                ? new Date(payload.cancelled_at)
-                : null,
-            cancelReason: payload.cancel_reason || null,
-        },
-    })
+function extractLineItems(lineItems = []) {
+    return lineItems.map((li) => ({
+        title: li.title,
+        variantTitle: li.variant_title || null,
+        quantity: li.quantity,
+    }))
 }
 
-// Used by fulfillments/create and fulfillments/update — same Fulfillment
-// resource shape for both.
-export async function upsertFulfillmentFromWebhook(payload) {
-    const order = await prisma.order.findUnique({
-        where: { shopifyOrderId: String(payload.order_id) },
-        select: { id: true },
+// ---------- Shopify GraphQL helpers ----------
+async function getAccessTokenForShop(shop) {
+    const session = await prisma.session.findFirst({
+        where: { shop },
+        select: { accessToken: true },
     })
-
-    if (!order) {
-        // Fulfillment webhook arrived before the order webhook was
-        // processed (race condition — Shopify doesn't guarantee delivery
-        // order). Log and bail; the next fulfillments/update for the same
-        // fulfillment will retry the link once the order row exists.
-        console.error(
-            `No local order found for shopifyOrderId ${payload.order_id}, skipping fulfillment webhook`
-        )
-        return
+    if (!session) {
+        throw new Error(`No offline session found for shop ${shop}`)
     }
+    return session.accessToken
+}
 
-    const trackingUrl =
-        payload.tracking_url || payload.tracking_urls?.[0] || null
-
-    await prisma.order_fulfillment.upsert({
-        where: { shopifyFulfillmentId: String(payload.id) },
-        create: {
-            shopifyFulfillmentId: String(payload.id),
-            orderId: order.id,
-            status: payload.status || null,
-            shipmentStatus: payload.shipment_status || null,
-            trackingCompany: payload.tracking_company || null,
-            trackingNumber: payload.tracking_number || null,
-            trackingUrl,
-            shopifyCreatedAt: new Date(payload.created_at),
-            shopifyUpdatedAt: new Date(payload.updated_at),
-        },
-        update: {
-            status: payload.status || null,
-            shipmentStatus: payload.shipment_status || null,
-            trackingCompany: payload.tracking_company || null,
-            trackingNumber: payload.tracking_number || null,
-            trackingUrl,
-            shopifyUpdatedAt: new Date(payload.updated_at),
-        },
-    })
+async function fetchShopifyGraphQL(shop, query, variables = {}) {
+    const token = await getAccessTokenForShop(shop)
+    const response = await fetch(
+        `https://${shop}/admin/api/2026-10/graphql.json`,
+        {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Shopify-Access-Token': token,
+            },
+            body: JSON.stringify({ query, variables }),
+        }
+    )
+    if (!response.ok) {
+        const text = await response.text()
+        throw new Error(
+            `Shopify GraphQL request failed: ${response.status} ${text}`
+        )
+    }
+    const json = await response.json()
+    if (json.errors) {
+        throw new Error(`GraphQL errors: ${JSON.stringify(json.errors)}`)
+    }
+    return json.data
 }
 
 async function getVerificationField(shop) {
-    const sessionId = await getSessionIdForShop(shop)
-    if (!sessionId) return 'email'
+    const session = await prisma.session.findFirst({
+        where: { shop, isOnline: false },
+        select: { id: true },
+    })
+    if (!session) return 'email'
     const settings = await prisma.usagesettings.findUnique({
-        where: { sessionId },
+        where: { sessionId: session.id },
         select: { verificationMethod: true },
     })
     return settings?.verificationMethod === 'phone' ? 'phone' : 'email'
@@ -199,59 +105,167 @@ function normalizePhone(phone) {
     return phone.replace(/\D/g, '').slice(-10)
 }
 
+// Keys must match Shopify's FulfillmentDisplayStatus enum values exactly
+// (Fulfillment.displayStatus) — these come back UPPER_SNAKE_CASE, not the
+// lowercase REST-style strings the old webhook payloads used.
 const STATUS_LABELS = {
-    fulfilled: 'Shipped',
-    partial: 'Partially shipped',
-    label_printed: 'Preparing to ship',
-    in_transit: 'In transit',
-    out_for_delivery: 'Out for delivery',
-    delivered: 'Delivered',
-    failure: "Delivery issue — we're looking into it",
+    SUBMITTED: 'Preparing to ship',
+    CONFIRMED: 'Preparing to ship',
+    LABEL_PURCHASED: 'Preparing to ship',
+    LABEL_PRINTED: 'Preparing to ship',
+    CARRIER_PICKED_UP: 'Picked up by carrier',
+    IN_TRANSIT: 'In transit',
+    OUT_FOR_DELIVERY: 'Out for delivery',
+    READY_FOR_PICKUP: 'Ready for pickup',
+    PICKED_UP: 'Picked up',
+    DELIVERED: 'Delivered',
+    ATTEMPTED_DELIVERY: 'Delivery attempted',
+    DELAYED: 'Delayed',
+    FAILURE: "Delivery issue — we're looking into it",
+    NOT_DELIVERED: "Delivery issue — we're looking into it",
+    FULFILLED: 'Shipped',
+    MARKED_AS_FULFILLED: 'Shipped',
+    CANCELED: 'Cancelled',
+    LABEL_VOIDED: 'Cancelled',
 }
 
-// Matches order number + the submitted contact value (per shop's
-// verificationMethod) against stored order rows. Same generic outcome
-// whether the order doesn't exist or the contact doesn't match — never
-// reveals which one failed.
 async function verifyAndBuildOrder(shop, orderNumberInput, contactValue) {
     const orderNumber = normalizeOrderNumber(orderNumberInput)
     if (!orderNumber) return { found: false }
 
-    const order = await prisma.order.findFirst({
-        where: {
-            orderNumber,
-            session: { shop, isOnline: false },
+    // 1. Fetch order from Shopify using GraphQL
+    // The order_number filter value is bound through the $searchQuery
+    // variable (not spliced into the query document text) — this is both
+    // safer and required, since GraphQL rejects a declared variable that
+    // the query body never references.
+    const query = `
+    query getOrder($searchQuery: String!) {
+      orders(first: 1, query: $searchQuery) {
+        edges {
+          node {
+            id
+            orderNumber
+            name
+            email
+            phone
+            displayFinancialStatus
+            displayFulfillmentStatus
+            currency
+            currentTotalPrice
+            cancelledAt
+            cancelReason
+            createdAt
+            shippingAddress {
+              city
+              province
+              country
+            }
+            lineItems(first: 50) {
+              edges {
+                node {
+                  title
+                  variantTitle
+                  quantity
+                }
+              }
+            }
+            fulfillments(first: 10) {
+              edges {
+                node {
+                  displayStatus
+                  trackingCompany
+                  trackingNumber
+                  trackingUrl
+                  createdAt
+                  updatedAt
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `
+
+    let data
+    try {
+        data = await fetchShopifyGraphQL(shop, query, {
+            searchQuery: `order_number:${orderNumber}`,
+        })
+    } catch (err) {
+        logger.error(
+            { err, shop, orderNumber },
+            'Failed to fetch order from Shopify'
+        )
+        return { found: false }
+    }
+
+    const orderEdge = data?.orders?.edges?.[0]
+    if (!orderEdge) {
+        return { found: false }
+    }
+
+    const node = orderEdge.node
+
+    // 2. Build a payload that resembles the REST webhook structure so we can reuse extractors
+    const payload = {
+        email: node.email,
+        phone: node.phone,
+        shipping_address: {
+            city: node.shippingAddress?.city,
+            province: node.shippingAddress?.province,
+            country: node.shippingAddress?.country,
         },
-        include: { fulfillments: true },
-    })
-    if (!order) return { found: false }
+        line_items: node.lineItems.edges.map((edge) => ({
+            title: edge.node.title,
+            variant_title: edge.node.variantTitle,
+            quantity: edge.node.quantity,
+        })),
+        financial_status: node.displayFinancialStatus,
+        fulfillment_status: node.displayFulfillmentStatus,
+        currency: node.currency,
+        total_price: node.currentTotalPrice,
+        cancelled_at: node.cancelledAt,
+        cancel_reason: node.cancelReason,
+        created_at: node.createdAt,
+    }
 
+    // 3. Verify contact match
     const field = await getVerificationField(shop)
+    let isMatch = false
+    if (field === 'phone') {
+        const orderPhone = extractPhone(payload).value
+        isMatch =
+            orderPhone &&
+            normalizePhone(orderPhone) === normalizePhone(contactValue)
+    } else {
+        const orderEmail = extractEmail(payload).value
+        isMatch =
+            orderEmail &&
+            orderEmail.trim().toLowerCase() ===
+                String(contactValue).trim().toLowerCase()
+    }
+    if (!isMatch) {
+        return { found: false }
+    }
 
-    const isMatch =
-        field === 'phone'
-            ? order.phone &&
-              normalizePhone(order.phone) === normalizePhone(contactValue)
-            : order.email &&
-              order.email.trim().toLowerCase() ===
-                  String(contactValue).trim().toLowerCase()
+    // 4. Build the response object
+    const lineItems = extractLineItems(payload.line_items)
+    const fulfillments =
+        node.fulfillments?.edges?.map((edge) => edge.node) || []
 
-    if (!isMatch) return { found: false }
-
-    const lineItems = JSON.parse(order.lineItems || '[]')
-
-    if (order.cancelledAt) {
+    if (payload.cancelled_at) {
         return {
             found: true,
-            orderNumber: order.orderName,
+            orderNumber: node.name,
             status: 'Cancelled',
         }
     }
 
-    if (!order.fulfillments.length) {
+    if (fulfillments.length === 0) {
         return {
             found: true,
-            orderNumber: order.orderName,
+            orderNumber: node.name,
             status: 'Processing',
             items: lineItems.map((li) => `${li.title} x${li.quantity}`),
         }
@@ -259,13 +273,10 @@ async function verifyAndBuildOrder(shop, orderNumberInput, contactValue) {
 
     return {
         found: true,
-        orderNumber: order.orderName,
+        orderNumber: node.name,
         items: lineItems.map((li) => `${li.title} x${li.quantity}`),
-        shipments: order.fulfillments.map((f) => ({
-            status:
-                STATUS_LABELS[f.shipmentStatus] ||
-                STATUS_LABELS[f.status] ||
-                'Processing',
+        shipments: fulfillments.map((f) => ({
+            status: STATUS_LABELS[f.displayStatus] || 'Processing',
             carrier: f.trackingCompany || null,
             trackingNumber: f.trackingNumber || null,
             trackingUrl: f.trackingUrl || null,
@@ -276,8 +287,6 @@ async function verifyAndBuildOrder(shop, orderNumberInput, contactValue) {
 export { getVerificationField, verifyAndBuildOrder }
 
 export default {
-    upsertOrderFromWebhook,
-    upsertFulfillmentFromWebhook,
     getVerificationField,
     verifyAndBuildOrder,
 }

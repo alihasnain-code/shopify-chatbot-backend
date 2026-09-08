@@ -8,7 +8,7 @@ async function getAccessToken(shop) {
         return cached.value
     }
 
-    const response = await fetch("https://api.shopify.com/auth/access_token", {
+    const response = await fetch('https://api.shopify.com/auth/access_token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
