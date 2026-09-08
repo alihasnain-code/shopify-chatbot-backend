@@ -247,7 +247,7 @@ async function verifyAndBuildOrder(shop, orderNumberInput, contactValue) {
         isMatch =
             orderEmail &&
             orderEmail.trim().toLowerCase() ===
-            String(contactValue).trim().toLowerCase()
+                String(contactValue).trim().toLowerCase()
     }
     if (!isMatch) {
         return { found: false }
