@@ -144,14 +144,17 @@ async function verifyAndBuildOrder(shop, orderNumberInput, contactValue) {
         edges {
           node {
             id
-            orderNumber
             name
             email
             phone
             displayFinancialStatus
             displayFulfillmentStatus
-            currency
-            currentTotalPrice
+            currencyCode
+            currentTotalPriceSet {
+              shopMoney {
+                amount
+              }
+            }
             cancelledAt
             cancelReason
             createdAt
@@ -170,16 +173,14 @@ async function verifyAndBuildOrder(shop, orderNumberInput, contactValue) {
               }
             }
             fulfillments(first: 10) {
-              edges {
-                node {
-                  displayStatus
-                  trackingCompany
-                  trackingNumber
-                  trackingUrl
-                  createdAt
-                  updatedAt
-                }
+              displayStatus
+              trackingInfo(first: 5) {
+                company
+                number
+                url
               }
+              createdAt
+              updatedAt
             }
           }
         }
@@ -189,8 +190,11 @@ async function verifyAndBuildOrder(shop, orderNumberInput, contactValue) {
 
     let data
     try {
+        // "order_number" is not a real Shopify search field — the only
+        // documented filter for looking an order up by its human-facing
+        // number is "name" (the order's display name, e.g. "#1002").
         data = await fetchShopifyGraphQL(shop, query, {
-            searchQuery: `order_number:${orderNumber}`,
+            searchQuery: `name:${orderNumber}`,
         })
     } catch (err) {
         logger.error(
@@ -223,8 +227,8 @@ async function verifyAndBuildOrder(shop, orderNumberInput, contactValue) {
         })),
         financial_status: node.displayFinancialStatus,
         fulfillment_status: node.displayFulfillmentStatus,
-        currency: node.currency,
-        total_price: node.currentTotalPrice,
+        currency: node.currencyCode,
+        total_price: node.currentTotalPriceSet?.shopMoney?.amount,
         cancelled_at: node.cancelledAt,
         cancel_reason: node.cancelReason,
         created_at: node.createdAt,
@@ -243,7 +247,7 @@ async function verifyAndBuildOrder(shop, orderNumberInput, contactValue) {
         isMatch =
             orderEmail &&
             orderEmail.trim().toLowerCase() ===
-                String(contactValue).trim().toLowerCase()
+            String(contactValue).trim().toLowerCase()
     }
     if (!isMatch) {
         return { found: false }
@@ -251,8 +255,7 @@ async function verifyAndBuildOrder(shop, orderNumberInput, contactValue) {
 
     // 4. Build the response object
     const lineItems = extractLineItems(payload.line_items)
-    const fulfillments =
-        node.fulfillments?.edges?.map((edge) => edge.node) || []
+    const fulfillments = node.fulfillments || []
 
     if (payload.cancelled_at) {
         return {
@@ -275,12 +278,17 @@ async function verifyAndBuildOrder(shop, orderNumberInput, contactValue) {
         found: true,
         orderNumber: node.name,
         items: lineItems.map((li) => `${li.title} x${li.quantity}`),
-        shipments: fulfillments.map((f) => ({
-            status: STATUS_LABELS[f.displayStatus] || 'Processing',
-            carrier: f.trackingCompany || null,
-            trackingNumber: f.trackingNumber || null,
-            trackingUrl: f.trackingUrl || null,
-        })),
+        shipments: fulfillments.map((f) => {
+            // trackingInfo is a list (multi-package shipments can have more
+            // than one) — we only surface the first entry here.
+            const tracking = (f.trackingInfo && f.trackingInfo[0]) || {}
+            return {
+                status: STATUS_LABELS[f.displayStatus] || 'Processing',
+                carrier: tracking.company || null,
+                trackingNumber: tracking.number || null,
+                trackingUrl: tracking.url || null,
+            }
+        }),
     }
 }
 
